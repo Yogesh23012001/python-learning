@@ -170,3 +170,24 @@ def test_top_urls_respects_n(svc: URLShortener) -> None:
 
 def test_top_urls_empty_storage(svc: URLShortener) -> None:
     assert svc.top_urls(n=5) == []
+
+
+def test_generate_code_raises_when_exhausted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Force generation exhaustion by making secrets.choice always return the same char."""
+    from url_shortener import service
+
+    s = service.URLShortener()
+
+    # Pre-populate storage with the code that will always be generated
+    forced_code = "A" * service.CODE_LENGTH
+    s._storage[forced_code] = service.ShortURL(
+        code=forced_code,
+        long_url="https://blocker.com",
+        created_at=0.0,
+    )
+
+    # Monkey-patch secrets.choice to always return "A"
+    monkeypatch.setattr(service.secrets, "choice", lambda alphabet: "A")
+
+    with pytest.raises(service.GenerationFailedError, match="failed to generate"):
+        s.shorten("https://example.com")
