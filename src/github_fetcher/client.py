@@ -89,7 +89,10 @@ class GitHubClient:
             stop=stop_after_attempt(self._max_retries),
             wait=wait_exponential(multiplier=1, min=1, max=10),
             retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
-            before_sleep=before_sleep_log(logger, logging.WARNING),  # type: ignore[arg-type]
+            # The tenacity stub bundled with pre-commit's isolated env still
+            # expects LoggerProtocol; the version in our .venv accepts Logger.
+            # Suppress on both with arg-type + unused-ignore.
+            before_sleep=before_sleep_log(logger, logging.WARNING),  # type: ignore[arg-type, unused-ignore]
             reraise=True,
         ):
             with attempt:
