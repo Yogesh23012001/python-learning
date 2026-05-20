@@ -25,7 +25,7 @@ def make_engine() -> AsyncEngine:
     """Create the async SQLAlchemy engine (one per process)."""
     settings = get_settings()
     return create_async_engine(
-        settings.database_url,
+        settings.database_url.get_secret_value(),
         echo=settings.db_echo,
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,

@@ -11,6 +11,7 @@ import logging
 from typing import Any
 
 import httpx
+from purgatory import AsyncCircuitBreakerFactory
 from tenacity import (
     AsyncRetrying,
     before_sleep_log,
@@ -53,11 +54,17 @@ class GitHubClient:
         timeout: httpx.Timeout = DEFAULT_TIMEOUT,
         max_concurrency: int = DEFAULT_MAX_CONCURRENCY,
         max_retries: int = 3,
+        breaker_threshold: int = 5,  # 5 failures → open
+        breaker_ttl: float = 30.0,  # stay open for 30s, then probe
     ) -> None:
         self._client: httpx.AsyncClient | None = None
         self._timeout = timeout
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._max_retries = max_retries
+        self._breakers = AsyncCircuitBreakerFactory(
+            default_threshold=breaker_threshold,
+            default_ttl=breaker_ttl,
+        )
 
     async def __aenter__(self) -> GitHubClient:
         self._client = httpx.AsyncClient(
@@ -77,11 +84,6 @@ class GitHubClient:
     # ------------------------------------------------------------------
 
     async def _request(self, path: str) -> dict[str, Any] | list[Any]:
-        """Make a GET request to the GitHub API.
-
-        Encapsulates: semaphore (concurrency cap), retries (transient errors),
-        error classification (404 vs 403 vs 5xx vs network).
-        """
         if self._client is None:
             raise RuntimeError("client used outside `async with` context")
 
@@ -89,17 +91,14 @@ class GitHubClient:
             stop=stop_after_attempt(self._max_retries),
             wait=wait_exponential(multiplier=1, min=1, max=10),
             retry=retry_if_exception_type((httpx.TimeoutException, httpx.NetworkError)),
-            # The tenacity stub bundled with pre-commit's isolated env still
-            # expects LoggerProtocol; the version in our .venv accepts Logger.
-            # Suppress on both with arg-type + unused-ignore.
             before_sleep=before_sleep_log(logger, logging.WARNING),  # type: ignore[arg-type, unused-ignore]
             reraise=True,
         ):
             with attempt:
-                async with self._semaphore:
-                    response = await self._client.get(path)
+                async with self._semaphore:  # noqa: SIM117
+                    async with await self._breakers.get_breaker("github"):
+                        response = await self._client.get(path)
 
-                # Classify response status
                 if response.status_code == 404:
                     raise UserNotFoundError(f"resource not found: {path}")
                 if response.status_code == 403:

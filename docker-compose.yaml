@@ -16,6 +16,39 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: python_learning_jaeger
+    ports:
+      - "16686:16686"     # Jaeger UI
+      - "4317:4317"       # OTLP gRPC receiver
+      - "4318:4318"       # OTLP HTTP receiver
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+
+  prometheus:
+    image: prom/prometheus:v2.55.0
+    container_name: python_learning_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    container_name: python_learning_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - grafana_data:/var/lib/grafana  
 
 volumes:
   pg_data:
+  grafana_data:

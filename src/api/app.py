@@ -9,47 +9,84 @@ import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
+import httpx
+import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from github_fetcher.client import GitHubClient
 
+from api.config import SettingsDep, get_settings
 from api.db import make_engine, make_session_factory
 from api.github_routes import router as github_router
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+from api.logging_config import configure_logging, get_logger
+from api.mertics import add_metrics_endpoint, add_metrics_middleware
+from api.telemetry import (
+    configure_tracing,
+    instrument_fastapi_and_httpx,
+    instrument_sqlalchemy,
 )
-logger = logging.getLogger(__name__)
+
+_settings = get_settings()
+configure_logging(
+    json_logs=_settings.log_format_json,
+    level=getattr(logging, _settings.log_level.value),
+)
+logger = get_logger(__name__)
+
+# Configure tracing at module load — before any httpx client or DB engine is
+# created. HTTPXClientInstrumentor patches httpx.Client.__init__ globally and
+# only affects clients constructed AFTER it runs.
+configure_tracing(service_name="python-learning-api")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    logger.info("starting up — initializing resources")
+    settings = get_settings()
+    logger.info(
+        "starting_up",
+        environment=settings.environment.value,
+        debug=settings.debug,
+    )
 
-    # Database
+    app.state.settings = settings
     app.state.engine = make_engine()
+    instrument_sqlalchemy(app.state.engine)
     app.state.session_factory = make_session_factory(app.state.engine)
-
-    # GitHub client (existing)
-    app.state.github_client = GitHubClient(max_concurrency=5)
+    app.state.github_client = GitHubClient(
+        max_concurrency=settings.github_max_concurrency,
+        timeout=httpx.Timeout(
+            connect=5.0,
+            read=settings.github_api_timeout_s,
+            write=5.0,
+            pool=2.0,
+        ),
+    )
     await app.state.github_client.__aenter__()
-
-    # In-memory state (existing)
     app.state.fake_llm = {"calls_made": 0}
 
     yield
 
-    logger.info("shutting down — cleaning up resources")
+    logger.info("shutting_down")
     await app.state.github_client.__aexit__(None, None, None)
-    await app.state.engine.dispose()  # close all pool connections
-    logger.info("final call count: %d", app.state.fake_llm["calls_made"])
+    await app.state.engine.dispose()
 
 
 app = FastAPI(title="Production-Shape API", version="0.1.0", lifespan=lifespan)
+
+# Instrument BEFORE custom middleware decorators run, so OTel's middleware
+# sits at the outermost layer and creates the parent span for each request.
+instrument_fastapi_and_httpx(app)
+
 app.include_router(github_router)
+
+# /metrics endpoint can be registered now; it's a route, not middleware.
+add_metrics_endpoint(app)
+# NOTE: add_metrics_middleware(app) is intentionally NOT called here.
+# It's called at the bottom of this file so the metrics middleware ends up
+# OUTERMOST in the stack — otherwise cache hits short-circuit before
+# reaching metrics and you under-count requests.
 
 
 # ============================================================
@@ -127,25 +164,24 @@ async def add_request_id_and_timing(
     request: Request,
     call_next: Callable[[Request], Awaitable[Response]],
 ) -> Response:
-    """Attach a request_id to every request and log timing."""
+    """Attach request_id to context; emit structured request log on completion."""
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     start = time.perf_counter()
-
-    # Make request_id available to downstream handlers via request.state
     request.state.request_id = request_id
+
+    # Bind context for the duration of this request
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+    )
 
     try:
         response = await call_next(request)
     except Exception:
-        # Re-raise — the exception handler will deal with the response
         elapsed_ms = (time.perf_counter() - start) * 1000
-        logger.exception(
-            "request failed: method=%s path=%s elapsed_ms=%.2f request_id=%s",
-            request.method,
-            request.url.path,
-            elapsed_ms,
-            request_id,
-        )
+        logger.exception("request_failed", elapsed_ms=round(elapsed_ms, 2))
         raise
 
     elapsed_ms = (time.perf_counter() - start) * 1000
@@ -153,14 +189,17 @@ async def add_request_id_and_timing(
     response.headers["X-Process-Time-Ms"] = f"{elapsed_ms:.2f}"
 
     logger.info(
-        "method=%s path=%s status=%d elapsed_ms=%.2f request_id=%s",
-        request.method,
-        request.url.path,
-        response.status_code,
-        elapsed_ms,
-        request_id,
+        "request_completed",
+        status=response.status_code,
+        elapsed_ms=round(elapsed_ms, 2),
     )
     return response
+
+
+# Register metrics middleware LAST so it sits at the outermost layer of the
+# stack and observes every incoming request — including those served from the
+# in-process cache before reaching the route handler.
+add_metrics_middleware(app)
 
 
 @app.get("/")
@@ -283,12 +322,16 @@ async def rate_limit(
     now = time.time()
 
     # Clean up old entries
-    window = 60  # seconds
+    _settings = get_settings()
+    window = _settings.rate_limit_window_seconds
+    rate_limit_max = _settings.rate_limit_max_requests
     _RATE_LIMIT_STORE[client_ip] = [
         timestamp for timestamp in _RATE_LIMIT_STORE.get(client_ip, []) if now - timestamp < window
     ]
 
-    if len(_RATE_LIMIT_STORE[client_ip]) >= 10:  # limit to 10 requests per minute
+    if (
+        len(_RATE_LIMIT_STORE[client_ip]) >= rate_limit_max
+    ):  # limit to specified requests per minute
         return JSONResponse(
             status_code=429,
             content={"error": "TooManyRequests", "detail": "rate limit exceeded"},
@@ -317,3 +360,13 @@ async def withdraw(amount: float = 100, balance: float = 50) -> dict[str, float]
     if amount > balance:
         raise InsufficientBalanceError(balance=balance, requested=amount)
     return {"withdrawn": amount, "remaining_balance": balance - amount}
+
+
+@app.get("/info")
+async def info(settings: SettingsDep) -> dict[str, str | int]:
+    return {
+        "environment": settings.environment.value,
+        "log_level": settings.log_level.value,
+        "github_max_concurrency": settings.github_max_concurrency,
+        "rate_limit_max_requests": settings.rate_limit_max_requests,
+    }

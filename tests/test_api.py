@@ -252,8 +252,12 @@ def test_score_endpoint_calls_client_correctly(
     override_github_client.get_user_repos.assert_awaited_with("alice")
 
 
-def test_rate_limit_blocks_11th_request(client: TestClient) -> None:
-    for _ in range(10):
+def test_rate_limit_blocks_request_over_quota(client: TestClient) -> None:
+    """Send (limit + 1) requests; everything up to `limit` passes, then 429."""
+    from api.config import get_settings
+
+    limit = get_settings().rate_limit_max_requests
+    for _ in range(limit):
         response = client.get("/")
         assert response.status_code == 200
     response = client.get("/")
