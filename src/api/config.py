@@ -61,6 +61,19 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = Field(default=None)
     openai_api_key: SecretStr | None = Field(default=None)
 
+    gemini_api_key: SecretStr | None = Field(default=None)
+    gemini_default_model: str = Field(default="gemini-2.5-flash")
+
+    openrouter_api_key: SecretStr | None = Field(default=None)
+    openrouter_default_model: str = Field(
+        default="meta-llama/llama-3.3-70b-instruct:free",
+        description="Default OpenRouter model. ':free' suffix uses the free tier.",
+    )
+
+    llm_provider: str = Field(
+        default="gemini",
+        description="Which provider to use: 'gemini', 'openrouter', or 'mock'.",
+    )
     # ---- Behavior ----
     rate_limit_max_requests: int = Field(default=10, ge=1)
     rate_limit_window_seconds: float = Field(default=60.0, gt=0.0)

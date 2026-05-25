@@ -7,7 +7,9 @@ dependencies = [
     "alembic>=1.18.4",
     "asyncpg>=0.31.0",
     "fastapi>=0.136.1",
+    "google-genai>=2.6.0",
     "httpx>=0.28.1",
+    "openai>=2.38.0",
     "opentelemetry-api>=1.27",
     "opentelemetry-exporter-otlp>=1.27",
     "opentelemetry-instrumentation-fastapi>=0.48b0",
@@ -93,6 +95,25 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 disallow_any_generics = true
+
+# Demo / learning scripts are intentionally loose — they explore APIs
+# and don't carry production safety guarantees. Production paths still
+# get full --strict treatment.
+[[tool.mypy.overrides]]
+module = [
+    "llm.client_demo",
+    "llm.error_demo",
+    "llm.first_call",
+    "llm.multi_turn",
+    "llm.rate_limit_demo",
+    "llm.streaming",
+    "llm.streaming_structured",
+    "llm.structured",
+    "llm.token_counting",
+    "api.breaker_demo",
+    "api.resilience_demo",
+]
+ignore_errors = true
 
 # ============================================================
 # Pytest

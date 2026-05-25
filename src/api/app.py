@@ -16,10 +16,12 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from github_fetcher.client import GitHubClient
+from llm.factory import make_router
 
 from api.config import SettingsDep, get_settings
 from api.db import make_engine, make_session_factory
 from api.github_routes import router as github_router
+from api.llm_routes import router as llm_router
 from api.logging_config import configure_logging, get_logger
 from api.mertics import add_metrics_endpoint, add_metrics_middleware
 from api.telemetry import (
@@ -63,6 +65,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             pool=2.0,
         ),
     )
+    if settings.gemini_api_key is None:
+        raise RuntimeError("GEMINI_API_KEY not set in .env")
+    # app.state.llm_client = LLMClient(
+    #     api_key=settings.gemini_api_key.get_secret_value(),
+    #     default_model=settings.gemini_default_model,
+    #     )
+    app.state.llm_client = make_router(settings)
     await app.state.github_client.__aenter__()
     app.state.fake_llm = {"calls_made": 0}
 
@@ -80,6 +89,8 @@ app = FastAPI(title="Production-Shape API", version="0.1.0", lifespan=lifespan)
 instrument_fastapi_and_httpx(app)
 
 app.include_router(github_router)
+app.include_router(llm_router)
+
 
 # /metrics endpoint can be registered now; it's a route, not middleware.
 add_metrics_endpoint(app)

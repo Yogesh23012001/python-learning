@@ -32,3 +32,8 @@ class StoredScore(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),
     )
+    summary: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    summary_generated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
