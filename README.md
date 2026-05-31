@@ -30,3 +30,9 @@ uv run uvicorn api.app:app --reload --app-dir src --port 8000
 - Jaeger: http://localhost:16686
 - Prometheus: http://localhost:9090
 - Grafana: http://localhost:3000
+
+## Related projects
+
+- [idempotent-task-queue](https://github.com/Yogesh23012001/idempotent-task-queue) —
+  production-shape Python task queue with Postgres-as-queue, idempotency,
+  retries, and observability. Built as Week 1 capstone.
