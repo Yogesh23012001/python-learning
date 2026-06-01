@@ -50,3 +50,7 @@ Audit logging for security forensics
 ## Questions I want to investigate later
 - Models in trees based decision making
 - 
+
+Why does the LLM not actually call the function — what does it return instead, and why is that architecturally important?
+
+"The LLM doesn't 'decide' in the conditional-branching sense. When tool use is enabled, the model's output vocabulary is extended with structural tokens for function calls. During generation, every token is a probabilistic choice — sometimes the most likely continuation is regular text, sometimes it's a tool-call token sequence. The tool's description acts as prompt engineering: a well-written description with clear trigger phrases makes tool-call tokens highly probable for relevant inputs and unlikely for irrelevant ones. So 'deciding' is really probability distribution over tokens shaped by training and the descriptions in the prompt."
