@@ -36,6 +36,30 @@ http_requests_in_flight = Gauge(
     "HTTP requests currently being processed",
 )
 
+agent_runs_total = Counter(
+    "agent_runs_total",
+    "Total agent runs by outcome",
+    labelnames=("outcome",),  # "completed" | "max_iterations"
+)
+
+agent_iterations = Histogram(
+    "agent_iterations",
+    "Number of iterations per agent run",
+    buckets=(1, 2, 3, 4, 5, 6, 8, 10, 15),
+)
+
+agent_tool_calls_total = Counter(
+    "agent_tool_calls_total",
+    "Total tool calls by tool name and outcome",
+    labelnames=("tool", "outcome"),  # outcome: "success" | "error"
+)
+
+agent_cost_usd = Histogram(
+    "agent_cost_usd",
+    "Cost in USD per agent run",
+    buckets=(0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0),
+)
+
 
 def add_metrics_middleware(app: FastAPI) -> None:
     """Add a middleware that records RED metrics for every request."""

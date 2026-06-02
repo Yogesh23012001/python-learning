@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 import structlog
+from agent.agent_routes import router as agent_router
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -90,6 +91,7 @@ instrument_fastapi_and_httpx(app)
 
 app.include_router(github_router)
 app.include_router(llm_router)
+app.include_router(agent_router)
 
 
 # /metrics endpoint can be registered now; it's a route, not middleware.
