@@ -40,7 +40,7 @@ async def run_agent(
     if settings.gemini_api_key is None:
         raise RuntimeError("GEMINI_API_KEY not set")
     client = genai.Client(api_key=settings.gemini_api_key.get_secret_value())
-    chosen_model = model or "gemini-2.5-flash-lite"
+    chosen_model = model or "gemini-2.5-flash"
 
     gemini_tools: list[types.Tool | Any] = [
         types.Tool(

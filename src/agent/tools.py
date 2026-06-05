@@ -135,6 +135,63 @@ async def lookup_github_user(args: dict[str, Any], context: ToolContext) -> dict
     }
 
 
+async def score_and_save_user(args: dict[str, Any], context: ToolContext) -> dict[str, Any]:
+    """Score a GitHub user AND persist (upsert) the result to our database."""
+    login = args.get("login")
+    if not login or not isinstance(login, str):
+        return {"error": "missing 'login' (string) argument"}
+    if not login.replace("-", "").isalnum() or len(login) > 39:
+        return {"error": f"invalid github login: {login!r}"}
+
+    if context.github_client is None:
+        return {"error": "github_client not configured"}
+    if context.session_factory is None:
+        return {"error": "session_factory not configured"}
+
+    try:
+        score = await score_user(context.github_client, login)
+    except UserNotFoundError:
+        return {"error": "user_not_found", "login": login}
+    except RateLimitError:
+        return {"error": "github_rate_limit"}
+
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    stmt = (
+        pg_insert(StoredScore)
+        .values(
+            login=score.login,
+            name=score.name,
+            total_stars=score.total_stars,
+            total_forks=score.total_forks,
+            public_repos=score.public_repos,
+            followers=score.followers,
+            score=score.score,
+        )
+        .on_conflict_do_update(
+            index_elements=["login"],
+            set_={
+                "name": score.name,
+                "total_stars": score.total_stars,
+                "total_forks": score.total_forks,
+                "public_repos": score.public_repos,
+                "followers": score.followers,
+                "score": score.score,
+            },
+        )
+    )
+    async with context.session_factory() as session:
+        await session.execute(stmt)
+        await session.commit()
+
+    return {
+        "saved": True,
+        "login": score.login,
+        "name": score.name,
+        "score": score.score,
+    }
+
+
 async def query_stored_scores(args: dict[str, Any], context: ToolContext) -> dict[str, Any]:
     """List GitHub scores from our database, ordered by score descending."""
     limit = args.get("limit", 10)
@@ -161,6 +218,94 @@ async def query_stored_scores(args: dict[str, Any], context: ToolContext) -> dic
             }
             for r in rows
         ],
+    }
+
+
+async def web_search(args: dict[str, Any], context: ToolContext) -> dict[str, Any]:
+    """Stub web search — returns fake but plausible results.
+
+    In production this would call Bing, Brave Search, Tavily, or similar.
+    For Week 2 it returns a fixed shape so we can study agent behavior
+    without paying for real search APIs.
+    """
+    query = args.get("query")
+    if not query or not isinstance(query, str):
+        return {"error": "missing 'query' (string) argument"}
+
+    # Synthetic but plausible-looking results
+    # Real implementation would hit https://api.bing.microsoft.com/... or similar
+    return {
+        "query": query,
+        "results": [
+            {
+                "title": f"Article about {query} — example.com",
+                "url": f"https://example.com/articles/{query.replace(' ', '-')}",
+                "snippet": (
+                    f"This is a stub result for the query '{query}'. "
+                    "In production, this would be a real web result."
+                ),
+            },
+            {
+                "title": f"{query.title()} — Wikipedia",
+                "url": f"https://en.wikipedia.org/wiki/{query.replace(' ', '_')}",
+                "snippet": (f"Wikipedia article summary about {query} (stub data)."),
+            },
+            {
+                "title": f"Top discussion about {query} on Hacker News",
+                "url": "https://news.ycombinator.com/item?id=123456",
+                "snippet": f"Community discussion of {query} (stub data).",
+            },
+        ],
+    }
+
+
+async def summarize_text(args: dict[str, Any], context: ToolContext) -> dict[str, Any]:
+    """Summarize a passage of text using the LLM.
+
+    Architectural note: this is an agent tool that itself calls an LLM.
+    Nested LLM calls are real in production — 'summarize this output',
+    'classify this result', 'translate this snippet' are all this pattern.
+    """
+    text = args.get("text")
+    max_sentences = args.get("max_sentences", 2)
+
+    if not text or not isinstance(text, str):
+        return {"error": "missing 'text' (string) argument"}
+    if not isinstance(max_sentences, int) or max_sentences < 1 or max_sentences > 10:
+        return {"error": "max_sentences must be int 1-10"}
+    if len(text) > 5000:
+        return {"error": "text too long (max 5000 chars)"}
+
+    # Inline LLM call — we go direct to Gemini rather than through the agent's
+    # LLMRouter, to avoid circular dependencies and keep this tool simple.
+    from api.config import get_settings
+    from google import genai
+    from google.genai import types as gtypes
+
+    settings = get_settings()
+    if settings.gemini_api_key is None:
+        return {"error": "GEMINI_API_KEY not configured"}
+    client = genai.Client(api_key=settings.gemini_api_key.get_secret_value())
+
+    prompt = (
+        f"Summarize the following text in at most {max_sentences} "
+        f"complete sentences. Be concise and factual.\n\n{text}"
+    )
+
+    try:
+        response = await client.aio.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=[prompt],
+            config=gtypes.GenerateContentConfig(max_output_tokens=300),
+        )
+        summary = response.text or ""
+    except Exception as exc:
+        return {"error": f"summarization_failed: {exc}"}
+
+    return {
+        "original_length": len(text),
+        "summary": summary.strip(),
+        "max_sentences": max_sentences,
     }
 
 
@@ -241,6 +386,70 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "required": ["expression"],
         },
     },
+    {
+        "name": "web_search",
+        "description": (
+            "Search the web for general-knowledge information not in our database. "
+            "Returns the top 3 search results with title, URL, and snippet. "
+            "Use when the user asks about real-world topics that aren't about "
+            "specific GitHub users, our stored data, or time/math — for example, "
+            "questions about historical events, current news, technology concepts, "
+            "or company information."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "The search query, 1-200 characters.",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "summarize_text",
+        "description": (
+            "Summarize a passage of text in 1-10 sentences using an LLM. "
+            "Use when the user provides a long text and asks for a summary, "
+            "TL;DR, or shortened version. Also useful when another tool returns "
+            "verbose data that needs to be condensed for the user."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "The text to summarize (max 5000 characters).",
+                },
+                "max_sentences": {
+                    "type": "integer",
+                    "description": "Maximum number of sentences in the summary (1-10, default 2).",
+                },
+            },
+            "required": ["text"],
+        },
+    },
+    {
+        "name": "score_and_save_user",
+        "description": (
+            "Look up a GitHub user AND persist their score to our database "
+            "for future reference. Use ONLY when the user explicitly asks to "
+            "save, record, or remember a developer — for example: 'add this user "
+            "to our database', 'save torvalds for later', 'remember this developer'. "
+            "Do NOT use for simple lookups — use lookup_github_user instead."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "login": {
+                    "type": "string",
+                    "description": "The GitHub username, 1-39 chars.",
+                },
+            },
+            "required": ["login"],
+        },
+    },
 ]
 
 
@@ -252,8 +461,11 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
 HANDLERS: dict[str, ToolHandler] = {
     "get_current_time": get_current_time,
     "lookup_github_user": lookup_github_user,
+    "score_and_save_user": score_and_save_user,
     "query_stored_scores": query_stored_scores,
     "calculate": calculate,
+    "web_search": web_search,
+    "summarize_text": summarize_text,
 }
 
 DEFAULT_TOOL_TIMEOUT_S = 15.0
