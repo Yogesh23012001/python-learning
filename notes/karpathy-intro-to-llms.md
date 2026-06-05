@@ -210,5 +210,71 @@ Your tool_calls log isn't just a debug feature — it's a partial trace. You're 
 hit_iteration_limit is more interesting than you treated it. It's not just "we hit the safety cap." It's "the trace failed to converge." An agent whose traces frequently don't converge is an agent whose reasoning is misaligned with its toolkit. Frequency of hit_iteration_limit is a quality signal, not just a safety signal.
 Tool descriptions are the prompt for the reasoning step. When the LLM "thinks" about which tool to call, it's reasoning over the descriptions you wrote. Better descriptions = better thoughts = better actions. Hour 2 today is literally about this. Now you'll see why we're doing it.
 
-Write your own version. The shape is: "I used to think X. Now I think Y. The concrete difference for my code is Z." Three sentences in your voice.
 
+# Tool description engineering — experiments
+
+## Hypothesis (before running anything)
+
+I believe that:
+1. Removing the "Use when the user" trigger phrases from tool descriptions. Trigger phrases in tool descriptions are prompt engineering for the tool-selection step. They bias the model toward calling the tool when relevant trigger patterns appear in the user prompt, and away from calling it otherwise." 
+2. Making descriptions shorter/more terse will cause the LLM to
+Too terse failure: The LLM doesn't know when to use the tool. It might skip the tool entirely (defaulting to text from its own knowledge), or it might call it for the wrong situations. Selection becomes random.
+Too verbose failure: Different problem entirely. The model gets distracted by less-relevant details in the description and matches noise instead of signal. A description that says "Use this tool when the user asks about time, date, schedule, hours, minutes, seconds, or any temporal concept including past, present, future, deadlines, durations..." will trigger on every mention of time-adjacent words, including irrelevant ones.
+There's also a context-window cost — every tool description is in every prompt, every iteration. 5 tools × 200 words of description = 1000 wasted tokens per request, every request. At Anthropic-scale inference volumes, this costs real money. Concise descriptions are an operational concern, not just a quality concern.
+
+3. Adding *negative* hints ("do NOT use this tool when...") will.
+
+When negative hints work: When the model has a confusable alternative behavior. Adding "Do NOT use this tool to answer questions about historical times — only the current moment" prevents the LLM from calling get_current_time for "what time did WWII end?" — a real false-positive case.
+When negative hints backfire: The model can pattern-match on the forbidden trigger and call the tool anyway, especially for borderline cases. This is the same phenomenon as "don't think about a pink elephant" — telling someone what NOT to do focuses attention on it. Anthropic's own prompt-engineering docs warn about this; positive descriptions tend to be more reliable than negative ones.
+The senior framing: prefer telling the model when to use a tool (positive instruction) over when not to use it (negative instruction). Use negative hints only when you have a specific confusable case that positive framing can't disambiguate.
+
+
+
+
+
+Test        Baseline        Terse           Status 
+1:"What time is it in UTC right now?"called            get_current_timeERROR (no tool called, no text)❌ Broken2: "Current state of European market?"refused gracefullyrefused gracefully✅ Same3: "Show me developers we have records of"called query_stored_scorescalled query_stored_scores (richer answer)✅ Same4: "If torvalds has X and antirez has Y...""Would you like me to fetch them?""I can only retrieve all scores...if you'd like"❌ Different failure5: "Tell me about the GitHub user linus"found Linus G Thielfound Linus G Thiel❌ Same wrong answer
+
+
+
+## Variant A — Terse: findings
+
+### What broke
+- Test 1 (direct tool match): catastrophic failure — agent produced no tool call AND no text. Returned 422.
+- Test 4 (math intent): model wrongly described its own capabilities ("I can only retrieve all scores")
+
+### What survived
+- Test 2 (refusal): unchanged — model honesty handled it
+- Test 3 (database query): unchanged — small toolkit + adjacent triggers still resolved
+- Test 5 (disambiguation): unchanged — bug is architectural, not descriptional
+
+### Key insight
+Tool descriptions don't degrade linearly — they have failure cliffs.
+Below a specificity threshold the agent stops producing useful output entirely.
+The most damaging failures are silent capability misdescription, where the
+model confidently states wrong things about its own toolkit.
+
+
+
+## Variant B — No triggers, full prose: findings (CORRECTED)
+
+### What I thought broke (turned out to be rate limits, not descriptions)
+- Test 3: failed first, worked on retry with different model
+- Test 4: failed first, worked on retry — produced exact correct multi-step plan
+- Test 5: failed first, worked on retry — same wrong-person bug as baseline
+
+### What actually held
+- Test 1 (time): worked
+- Test 2 (refusal): worked
+
+### Real findings (honest)
+With only 4 tools, removing "Use when..." trigger phrases didn't break selection
+in any test (after controlling for rate limits). Long prose descriptions alone
+are sufficient at this toolkit size.
+
+### Meta-lesson
+Distinguish infrastructure failures (rate limits, network, quota) from
+behavior failures (description, prompt, model) BEFORE concluding anything
+about descriptions. Three apparent description failures turned out to be
+one rate-limit failure repeated three times. Confident misdiagnosis of
+failure cause is the #1 bug class in production agent debugging.
