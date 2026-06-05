@@ -1,9 +1,10 @@
-"""HTTP routes for the agent system."""
+"""HTTP routes for the agent system — streaming via async generator."""
 
 from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
+from dataclasses import asdict
 from typing import Annotated, Any
 
 import structlog
@@ -17,47 +18,29 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from agent.loop import AgentResult, run_agent
+from agent.events import (
+    AgentCompleted,
+    AgentEvent,
+    AgentStopped,
+    ToolCompleted,
+    ToolFailed,
+    ToolRequested,
+)
+from agent.loop import run_agent_stream
 from agent.tools import ToolContext
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/agent", tags=["agent"])
 
 
-def _record_agent_metrics(result: AgentResult) -> None:
-    """Single source of truth for agent metric increments."""
-    agent_runs_total.labels(
-        outcome="max_iterations" if result.hit_iteration_limit else "completed"
-    ).inc()
-    agent_iterations.observe(result.iterations)
-    for name, _args in result.tool_calls:
-        # We can't tell success vs error from the call log alone in our current
-        # shape; mark all as "executed". Hour 5 / Tuesday refactor will let us
-        # distinguish success vs error here.
-        agent_tool_calls_total.labels(tool=name, outcome="executed").inc()
-
-
-# ============================================================
-# Dependency — assemble the ToolContext from app.state
-# ============================================================
-
-
 def get_tool_context(request: Request) -> ToolContext:
-    """Construct a ToolContext from lifespan-managed resources."""
-    github_client = getattr(request.app.state, "github_client", None)
-    session_factory = getattr(request.app.state, "session_factory", None)
     return ToolContext(
-        github_client=github_client,
-        session_factory=session_factory,
+        github_client=getattr(request.app.state, "github_client", None),
+        session_factory=getattr(request.app.state, "session_factory", None),
     )
 
 
 ToolContextDep = Annotated[ToolContext, Depends(get_tool_context)]
-
-
-# ============================================================
-# Request/response models
-# ============================================================
 
 
 class AgentRunRequest(BaseModel):
@@ -83,7 +66,7 @@ class AgentRunResponse(BaseModel):
 
 
 # ============================================================
-# Non-streaming endpoint
+# Non-streaming endpoint — consume the generator, aggregate
 # ============================================================
 
 
@@ -92,135 +75,77 @@ async def agent_run(
     context: ToolContextDep,
     payload: AgentRunRequest,
 ) -> AgentRunResponse:
-    logger.info(
-        "agent_run_request",
-        prompt_length=len(payload.prompt),
-        max_iterations=payload.max_iterations,
-    )
+    """Run the agent and return the final aggregated result as JSON."""
+    logger.info("agent_run_request", prompt_length=len(payload.prompt))
+
+    tool_calls: list[ToolCallRecord] = []
+    terminal: AgentCompleted | AgentStopped | None = None
 
     try:
-        result = await run_agent(
+        async for event in run_agent_stream(
             payload.prompt,
             tool_context=context,
             max_iterations=payload.max_iterations,
             max_cost_usd=payload.max_cost_usd,
             model=payload.model,
-        )
+        ):
+            if isinstance(event, ToolRequested):
+                tool_calls.append(ToolCallRecord(name=event.name, args=event.args))
+            elif isinstance(event, ToolCompleted):
+                agent_tool_calls_total.labels(tool=event.name, outcome="success").inc()
+            elif isinstance(event, ToolFailed):
+                agent_tool_calls_total.labels(tool=event.name, outcome=event.error_type).inc()
+            elif isinstance(event, AgentCompleted | AgentStopped):
+                terminal = event
     except Exception as exc:
         logger.exception("agent_run_failed")
         raise HTTPException(status_code=500, detail=f"agent failed: {exc}") from exc
 
-    # Update metrics
-    if result.hit_iteration_limit:
-        agent_runs_total.labels(outcome="max_iterations").inc()
-    elif not result.text:
-        # Empty text without iteration limit hit = likely cost cap
-        agent_runs_total.labels(outcome="cost_cap").inc()
-    else:
-        agent_runs_total.labels(outcome="completed").inc()
+    if terminal is None:
+        # Generator ended without a terminal event — shouldn't happen
+        raise HTTPException(status_code=500, detail="agent ended without terminal event")
 
-    agent_iterations.observe(result.iterations)
-    agent_cost_usd.observe(result.total_cost_usd)
-    for name, _args in result.tool_calls:
-        agent_tool_calls_total.labels(tool=name, outcome="executed").inc()
+    # Metrics
+    agent_iterations.observe(terminal.iterations)
+    agent_cost_usd.observe(terminal.total_cost_usd)
 
-    response = AgentRunResponse(
-        text=result.text,
-        iterations=result.iterations,
-        tool_calls=[ToolCallRecord(name=name, args=args) for name, args in result.tool_calls],
-        hit_iteration_limit=result.hit_iteration_limit,
-        total_input_tokens=result.total_input_tokens,
-        total_output_tokens=result.total_output_tokens,
-        total_cost_usd=round(result.total_cost_usd, 6),
-    )
-
-    # Map safety exits to non-200 status
-    if result.hit_iteration_limit:
-        # 422 — "I understood your request but I can't fulfill it within limits"
+    if isinstance(terminal, AgentStopped):
+        agent_runs_total.labels(outcome=terminal.reason).inc()
         raise HTTPException(
             status_code=422,
             detail={
-                "error": "max_iterations_reached",
-                "message": f"agent exceeded max_iterations={payload.max_iterations}",
-                "iterations": result.iterations,
-                "tool_calls": [{"name": n, "args": a} for n, a in result.tool_calls],
-                "total_cost_usd": round(result.total_cost_usd, 6),
-            },
-        )
-    if not result.text:
-        # Empty text without iteration cap — likely cost cap or model refused to answer
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "no_text_response",
-                "message": "agent stopped without producing a final text answer",
-                "iterations": result.iterations,
-                "tool_calls": [{"name": n, "args": a} for n, a in result.tool_calls],
-                "total_cost_usd": round(result.total_cost_usd, 6),
+                "error": terminal.reason,
+                "message": f"agent stopped due to {terminal.reason}",
+                "iterations": terminal.iterations,
+                "tool_calls": [tc.model_dump() for tc in tool_calls],
+                "total_cost_usd": round(terminal.total_cost_usd, 6),
             },
         )
 
-    return response
-
-
-# ============================================================
-# Streaming endpoint — see each step as it happens
-# ============================================================
-
-
-async def _sse_event(event_type: str, data: dict[str, Any]) -> str:
-    payload = json.dumps(data, default=str)
-    return f"event: {event_type}\ndata: {payload}\n\n"
-
-
-async def _stream_agent_events(
-    payload: AgentRunRequest,
-    context: ToolContext,
-) -> AsyncIterator[str]:
-    """Stream agent events as they happen.
-
-    Implementation note: our `run_agent` returns the final result, not a stream
-    of events. For Hour 4 we approximate by running the agent to completion,
-    then emitting the events from the result. Hour 5 / Tuesday will refactor
-    `run_agent` to yield events as they happen.
-    """
-    yield await _sse_event("agent_started", {"prompt": payload.prompt[:200]})
-
-    try:
-        result = await run_agent(
-            payload.prompt,
-            tool_context=context,
-            max_iterations=payload.max_iterations,
-            model=payload.model,
-        )
-    except Exception as exc:
-        yield await _sse_event("error", {"detail": str(exc)[:300]})
-        return
-
-    _record_agent_metrics(result)
-
-    # Re-play the captured tool calls as events
-    for name, args in result.tool_calls:
-        yield await _sse_event("tool_call", {"name": name, "args": args})
-
-    if result.hit_iteration_limit:
-        yield await _sse_event(
-            "max_iterations_reached",
-            {
-                "iterations": result.iterations,
-                "tool_calls_count": len(result.tool_calls),
-            },
-        )
-    else:
-        yield await _sse_event("final_text", {"text": result.text})
-
-    yield await _sse_event(
-        "done",
-        {
-            "iterations": result.iterations,
-            "tool_calls": len(result.tool_calls),
-        },
+    # AgentCompleted normal path
+    agent_runs_total.labels(outcome="completed").inc()
+    return AgentRunResponse(
+        text=terminal.text,
+        iterations=terminal.iterations,
+        tool_calls=tool_calls,
+        hit_iteration_limit=False,
+        total_input_tokens=terminal.total_input_tokens,
+        total_output_tokens=terminal.total_output_tokens,
+        total_cost_usd=round(terminal.total_cost_usd, 6),
     )
+
+
+# ============================================================
+# Streaming endpoint — forward events as SSE
+# ============================================================
+
+
+def _event_to_sse(event: AgentEvent) -> str:
+    """Convert an event dataclass to an SSE-formatted line."""
+    event_type = event.type
+    # Exclude the 'type' field from data since it's the SSE event name
+    data = {k: v for k, v in asdict(event).items() if k != "type"}
+    return f"event: {event_type}\ndata: {json.dumps(data, default=str)}\n\n"
 
 
 @router.post("/run/stream")
@@ -228,13 +153,25 @@ async def agent_run_stream(
     context: ToolContextDep,
     payload: AgentRunRequest,
 ) -> StreamingResponse:
-    """Stream the agent's progress as Server-Sent Events."""
+    """Stream agent events live as SSE."""
     logger.info("agent_stream_request", prompt_length=len(payload.prompt))
+
+    async def _generate() -> AsyncIterator[str]:
+        try:
+            async for event in run_agent_stream(
+                payload.prompt,
+                tool_context=context,
+                max_iterations=payload.max_iterations,
+                max_cost_usd=payload.max_cost_usd,
+                model=payload.model,
+            ):
+                yield _event_to_sse(event)
+        except Exception as exc:
+            logger.exception("agent_stream_failed")
+            yield f"event: error\ndata: {json.dumps({'error': str(exc)[:300]})}\n\n"
+
     return StreamingResponse(
-        _stream_agent_events(payload, context),
+        _generate(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

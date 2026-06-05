@@ -51,7 +51,7 @@ agent_iterations = Histogram(
 agent_tool_calls_total = Counter(
     "agent_tool_calls_total",
     "Total tool calls by tool name and outcome",
-    labelnames=("tool", "outcome"),  # outcome: "success" | "error"
+    labelnames=("tool", "outcome"),
 )
 
 agent_cost_usd = Histogram(
