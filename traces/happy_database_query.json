@@ -1,0 +1,62 @@
+{
+  "canary": {
+    "name": "happy_database_query",
+    "prompt": "Show me the developers we have records of",
+    "expected_tools": [
+      "query_stored_scores"
+    ],
+    "expected_failure_mode": null,
+    "max_iterations": 8,
+    "max_cost_usd": 0.1
+  },
+  "events": [
+    {
+      "type": "agent_started",
+      "prompt_length": 41,
+      "max_iterations": 8,
+      "model": "gemini-2.5-flash"
+    },
+    {
+      "type": "iteration_started",
+      "iteration": 1
+    },
+    {
+      "type": "tool_requested",
+      "name": "query_stored_scores",
+      "args": {},
+      "iteration": 1
+    },
+    {
+      "type": "tool_completed",
+      "name": "query_stored_scores",
+      "iteration": 1,
+      "result_keys": [
+        "count",
+        "scores"
+      ],
+      "duration_ms": 94.42304214462638
+    },
+    {
+      "type": "iteration_started",
+      "iteration": 2
+    },
+    {
+      "type": "agent_completed",
+      "text": "We have records for 3 developers: Andrej (karpathy), Linus Torvalds (torvalds), and Salvatore Sanfilippo (antirez).",
+      "iterations": 2,
+      "total_input_tokens": 1713,
+      "total_output_tokens": 46,
+      "total_cost_usd": 0.0006288999999999999
+    }
+  ],
+  "actual_tools": [
+    "query_stored_scores"
+  ],
+  "terminal": {
+    "type": "agent_completed",
+    "iterations": 2,
+    "total_cost_usd": 0.000629,
+    "text_preview": "We have records for 3 developers: Andrej (karpathy), Linus Torvalds (torvalds), and Salvatore Sanfilippo (antirez)."
+  },
+  "verdict": "ok"
+}

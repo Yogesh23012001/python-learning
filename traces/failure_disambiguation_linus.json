@@ -1,0 +1,27 @@
+{
+  "canary": {
+    "name": "failure_disambiguation_linus",
+    "prompt": "Tell me about the GitHub user linus",
+    "expected_tools": [
+      "lookup_github_user"
+    ],
+    "expected_failure_mode": "wrong_reasoning",
+    "max_iterations": 8,
+    "max_cost_usd": 0.1
+  },
+  "events": [
+    {
+      "type": "agent_started",
+      "prompt_length": 35,
+      "max_iterations": 8,
+      "model": "gemini-2.5-flash"
+    },
+    {
+      "type": "iteration_started",
+      "iteration": 1
+    }
+  ],
+  "actual_tools": [],
+  "verdict": "crash",
+  "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google."
+}

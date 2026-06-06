@@ -16,6 +16,7 @@ from api.mertics import (
 )
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from llm.router import LLMRouter
 from pydantic import BaseModel, Field
 
 from agent.events import (
@@ -31,6 +32,17 @@ from agent.tools import ToolContext
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(prefix="/agent", tags=["agent"])
+
+
+def get_llm_router(request: Request) -> LLMRouter:
+    """Pull the lifespan-managed LLMRouter from app state."""
+    router: LLMRouter | None = getattr(request.app.state, "llm_client", None)
+    if router is None:
+        raise RuntimeError("llm_client not initialized — check lifespan")
+    return router
+
+
+LLMRouterDep = Annotated[LLMRouter, Depends(get_llm_router)]
 
 
 def get_tool_context(request: Request) -> ToolContext:
@@ -73,6 +85,7 @@ class AgentRunResponse(BaseModel):
 @router.post("/run", response_model=AgentRunResponse)
 async def agent_run(
     context: ToolContextDep,
+    llm: LLMRouterDep,
     payload: AgentRunRequest,
 ) -> AgentRunResponse:
     """Run the agent and return the final aggregated result as JSON."""
@@ -84,6 +97,7 @@ async def agent_run(
     try:
         async for event in run_agent_stream(
             payload.prompt,
+            llm=llm,
             tool_context=context,
             max_iterations=payload.max_iterations,
             max_cost_usd=payload.max_cost_usd,
@@ -151,6 +165,7 @@ def _event_to_sse(event: AgentEvent) -> str:
 @router.post("/run/stream")
 async def agent_run_stream(
     context: ToolContextDep,
+    llm: LLMRouterDep,
     payload: AgentRunRequest,
 ) -> StreamingResponse:
     """Stream agent events live as SSE."""
@@ -160,6 +175,7 @@ async def agent_run_stream(
         try:
             async for event in run_agent_stream(
                 payload.prompt,
+                llm=llm,
                 tool_context=context,
                 max_iterations=payload.max_iterations,
                 max_cost_usd=payload.max_cost_usd,

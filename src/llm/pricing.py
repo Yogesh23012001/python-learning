@@ -26,6 +26,8 @@ PRICING: dict[str, ModelPricing] = {
     "claude-sonnet-4-6": ModelPricing(3.00, 15.00),
     # OpenAI (for future use)
     "gpt-4.1-mini": ModelPricing(0.40, 1.60),
+    # Local (for future use)
+    "llama3.1:8b": ModelPricing(0.00, 0.00),
 }
 
 

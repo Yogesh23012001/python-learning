@@ -20,7 +20,13 @@ from llm.errors import (
     LLMRateLimitError,
     LLMRetryableError,
 )
-from llm.interface import LLMResponse, StreamChunk
+from llm.interface import (
+    AgentMessage,
+    AgentRoundResponse,
+    LLMResponse,
+    StreamChunk,
+    ToolCall,
+)
 
 
 def _classify_gemini_error(exc: Exception) -> LLMError:
@@ -136,3 +142,93 @@ class GeminiProvider:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
         )
+
+    async def agent_round(
+        self,
+        *,
+        model: str,
+        messages: list[AgentMessage],
+        tool_schemas: list[dict[str, Any]],
+        max_output_tokens: int | None = None,
+    ) -> AgentRoundResponse:
+        """Translate neutral messages → Gemini Contents, run one round."""
+        gemini_contents = [_to_gemini_content(m) for m in messages]
+        gemini_tools: list[types.Tool | Any] = [
+            types.Tool(
+                function_declarations=[
+                    types.FunctionDeclaration(**schema) for schema in tool_schemas
+                ]
+            )
+        ]
+        config_dict: dict[str, Any] = {"tools": gemini_tools}
+        if max_output_tokens is not None:
+            config_dict["max_output_tokens"] = max_output_tokens
+
+        try:
+            response = await self._client.aio.models.generate_content(
+                model=model,
+                contents=gemini_contents,
+                config=types.GenerateContentConfig(**config_dict),
+            )
+        except Exception as exc:
+            raise _classify_gemini_error(exc) from exc
+
+        if not response.candidates:
+            raise LLMEmptyResponseError("gemini returned no candidates")
+        candidate = response.candidates[0]
+        if candidate.content is None:
+            raise LLMEmptyResponseError("gemini candidate had no content")
+        parts = candidate.content.parts or []
+
+        text_chunks: list[str] = []
+        tool_calls: list[ToolCall] = []
+        for idx, part in enumerate(parts):
+            if part.text:
+                text_chunks.append(part.text)
+            if part.function_call is not None and part.function_call.name is not None:
+                tool_calls.append(
+                    ToolCall(
+                        id=f"call_{part.function_call.name}_{idx}",
+                        name=part.function_call.name,
+                        args=dict(part.function_call.args) if part.function_call.args else {},
+                    )
+                )
+
+        usage = response.usage_metadata
+        return AgentRoundResponse(
+            text="".join(text_chunks),
+            tool_calls=tool_calls,
+            input_tokens=(usage.prompt_token_count or 0) if usage else 0,
+            output_tokens=(usage.candidates_token_count or 0) if usage else 0,
+        )
+
+
+def _to_gemini_content(m: AgentMessage) -> types.Content:
+    """Translate one neutral AgentMessage into a Gemini Content object."""
+    if m.role == "user":
+        return types.Content(role="user", parts=[types.Part.from_text(text=m.content)])
+
+    if m.role == "assistant":
+        parts: list[types.Part] = []
+        if m.content:
+            parts.append(types.Part(text=m.content))
+        for tc in m.tool_calls:
+            parts.append(types.Part(function_call=types.FunctionCall(name=tc.name, args=tc.args)))
+        return types.Content(role="model", parts=parts)
+
+    if m.role == "tool":
+        # Gemini uses the function NAME, not an id, to match a response back.
+        name = m.tool_name or ""
+        # m.content is a JSON-string of the tool result; Gemini wants a dict.
+        import json as _json
+
+        try:
+            response_dict = _json.loads(m.content) if m.content else {}
+        except _json.JSONDecodeError:
+            response_dict = {"raw": m.content}
+        return types.Content(
+            role="user",
+            parts=[types.Part.from_function_response(name=name, response=response_dict)],
+        )
+
+    raise ValueError(f"unknown AgentMessage role: {m.role!r}")

@@ -10,8 +10,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 
+from api.config import get_settings
 from api.db import make_engine, make_session_factory
 from github_fetcher.client import GitHubClient
+from llm.factory import make_router
 
 from agent.events import (
     AgentCompleted,
@@ -27,6 +29,9 @@ from agent.tools import ToolContext
 
 
 async def amain(prompt: str, max_iterations: int) -> None:
+    settings = get_settings()
+    llm = make_router(settings)
+
     async with GitHubClient(max_concurrency=3) as github_client:
         engine = make_engine()
         try:
@@ -43,6 +48,7 @@ async def amain(prompt: str, max_iterations: int) -> None:
 
             async for event in run_agent_stream(
                 prompt,
+                llm=llm,
                 tool_context=context,
                 max_iterations=max_iterations,
             ):

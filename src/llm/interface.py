@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from dataclasses import dataclass, field
+from typing import Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel
 
@@ -37,6 +37,58 @@ class StreamChunk:
 
 
 # ============================================================
+# Agent-round types (provider-neutral conversation + tool calling)
+# ============================================================
+
+
+@dataclass(frozen=True)
+class ToolCall:
+    """One tool invocation requested by the model.
+
+    `id` is required for round-trips: providers like OpenAI/Ollama use it to
+    match a tool response back to a specific call. Gemini doesn't expose IDs,
+    so the Gemini adapter synthesises one (e.g. `f"call_{name}_{idx}"`).
+    """
+
+    id: str
+    name: str
+    args: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class AgentMessage:
+    """One turn in an agent conversation, provider-neutral.
+
+    role:
+      - "user"      — the human (or initial prompt)
+      - "assistant" — the model's reply (text + optional tool_calls)
+      - "tool"      — the result of a tool call (matches an earlier call via tool_call_id)
+    """
+
+    role: str
+    content: str = ""
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    tool_call_id: str | None = None  # only set on role="tool"
+    tool_name: str | None = None  # only set on role="tool" (Gemini needs the name back)
+
+
+@dataclass(frozen=True)
+class AgentRoundResponse:
+    """The model's reply for one round of an agent loop.
+
+    Exactly one of `text` / `tool_calls` will typically be populated:
+    - text only          → model is done answering
+    - tool_calls only    → model needs tool execution
+    - both populated     → some providers (Gemini) emit reasoning text alongside tool calls
+    """
+
+    text: str
+    tool_calls: list[ToolCall]
+    input_tokens: int
+    output_tokens: int
+
+
+# ============================================================
 # The provider interface
 # ============================================================
 
@@ -61,6 +113,24 @@ class LLMProvider(Protocol):
         max_output_tokens: int | None = None,
     ) -> LLMResponse:
         """Make a single non-streaming call."""
+        ...
+
+    async def agent_round(
+        self,
+        *,
+        model: str,
+        messages: list[AgentMessage],
+        tool_schemas: list[dict[str, Any]],
+        max_output_tokens: int | None = None,
+    ) -> AgentRoundResponse:
+        """One turn of an agent loop: send the conversation + tools, get reply.
+
+        The conversation history is provider-neutral (`AgentMessage` list);
+        adapters translate to/from native formats. Tool schemas are the same
+        Gemini-style JSON dicts your TOOL_SCHEMAS already uses; adapters
+        rewrap them into OpenAI's `{"type":"function", "function": {...}}`
+        shape if needed.
+        """
         ...
 
     def generate_stream(

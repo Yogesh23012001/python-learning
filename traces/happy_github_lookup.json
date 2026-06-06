@@ -1,0 +1,69 @@
+{
+  "canary": {
+    "name": "happy_github_lookup",
+    "prompt": "What is karpathy's GitHub score?",
+    "expected_tools": [
+      "lookup_github_user"
+    ],
+    "expected_failure_mode": null,
+    "max_iterations": 8,
+    "max_cost_usd": 0.1
+  },
+  "events": [
+    {
+      "type": "agent_started",
+      "prompt_length": 32,
+      "max_iterations": 8,
+      "model": "gemini-2.5-flash"
+    },
+    {
+      "type": "iteration_started",
+      "iteration": 1
+    },
+    {
+      "type": "tool_requested",
+      "name": "lookup_github_user",
+      "args": {
+        "login": "karpathy"
+      },
+      "iteration": 1
+    },
+    {
+      "type": "tool_completed",
+      "name": "lookup_github_user",
+      "iteration": 1,
+      "result_keys": [
+        "login",
+        "name",
+        "total_stars",
+        "total_forks",
+        "public_repos",
+        "followers",
+        "score"
+      ],
+      "duration_ms": 632.1957500185817
+    },
+    {
+      "type": "iteration_started",
+      "iteration": 2
+    },
+    {
+      "type": "agent_completed",
+      "text": "Karpathy's GitHub score is 628074.1.",
+      "iterations": 2,
+      "total_input_tokens": 1632,
+      "total_output_tokens": 35,
+      "total_cost_usd": 0.0005771
+    }
+  ],
+  "actual_tools": [
+    "lookup_github_user"
+  ],
+  "terminal": {
+    "type": "agent_completed",
+    "iterations": 2,
+    "total_cost_usd": 0.000577,
+    "text_preview": "Karpathy's GitHub score is 628074.1."
+  },
+  "verdict": "ok"
+}

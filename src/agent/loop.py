@@ -10,15 +10,14 @@ caller forwards events to SSE.
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import AsyncIterator
-from typing import Any
 
 import structlog
-from api.config import get_settings
-from google import genai
-from google.genai import types
+from llm.interface import AgentMessage
 from llm.pricing import calculate_cost_usd
+from llm.router import LLMRouter
 
 from agent.events import (
     AgentCompleted,
@@ -64,6 +63,7 @@ def _safe_cost(model: str, input_tokens: int, output_tokens: int) -> float:
 async def run_agent_stream(
     user_prompt: str,
     *,
+    llm: LLMRouter,
     tool_context: ToolContext,
     max_iterations: int = 8,
     max_cost_usd: float = 0.10,
@@ -71,24 +71,15 @@ async def run_agent_stream(
 ) -> AsyncIterator[AgentEvent]:
     """Run the agent and yield events as they happen.
 
-    This is the canonical implementation. Both /agent/run (non-streaming)
-    and /agent/run/stream (SSE) call this — non-streaming aggregates,
-    streaming forwards.
+    Provider-agnostic: works with any provider behind LLMRouter (Gemini,
+    OpenRouter, local Ollama, mock). The conversation history is kept as
+    neutral `AgentMessage` objects; LLMRouter.agent_round translates per
+    provider on each turn.
     """
-    settings = get_settings()
-    if settings.gemini_api_key is None:
-        raise RuntimeError("GEMINI_API_KEY not set")
-    client = genai.Client(api_key=settings.gemini_api_key.get_secret_value())
-    chosen_model = model or "gemini-2.5-flash"
+    chosen_model = model or llm.default_model
 
-    gemini_tools: list[types.Tool | Any] = [
-        types.Tool(
-            function_declarations=[types.FunctionDeclaration(**schema) for schema in TOOL_SCHEMAS]
-        )
-    ]
-
-    conversation: list[types.Content] = [
-        types.Content(role="user", parts=[types.Part.from_text(text=user_prompt)])
+    conversation: list[AgentMessage] = [
+        AgentMessage(role="user", content=user_prompt),
     ]
 
     total_input_tokens = 0
@@ -109,20 +100,16 @@ async def run_agent_stream(
     for iteration in range(1, max_iterations + 1):
         yield IterationStarted(iteration=iteration)
 
-        # ---- Call the LLM ----
-        response = await client.aio.models.generate_content(
+        # ---- Call the LLM (provider-neutral) ----
+        round_response = await llm.agent_round(
+            messages=conversation,
+            tool_schemas=TOOL_SCHEMAS,
             model=chosen_model,
-            contents=conversation,
-            config=types.GenerateContentConfig(
-                tools=gemini_tools,
-                max_output_tokens=1024,
-            ),
+            max_output_tokens=1024,
         )
 
-        usage = response.usage_metadata
-        if usage:
-            total_input_tokens += usage.prompt_token_count or 0
-            total_output_tokens += usage.candidates_token_count or 0
+        total_input_tokens += round_response.input_tokens
+        total_output_tokens += round_response.output_tokens
 
         # ---- Check cost cap (after each LLM call) ----
         current_cost = _safe_cost(chosen_model, total_input_tokens, total_output_tokens)
@@ -142,27 +129,16 @@ async def run_agent_stream(
             )
             return
 
-        # ---- Process response ----
-        if not response.candidates:
-            raise RuntimeError("model returned no candidates")
-        candidate = response.candidates[0]
-        if candidate.content is None:
-            raise RuntimeError("candidate had no content")
-        content = candidate.content
-        parts = content.parts or []
-        function_calls = [p.function_call for p in parts if p.function_call is not None]
-        text_parts = [p.text for p in parts if p.text]
-
-        if not function_calls:
-            final_text = "".join(text_parts)
+        # ---- Done when the model produced text and no tool calls ----
+        if not round_response.tool_calls:
             logger.info(
                 "agent_stream_completed",
                 iterations=iteration,
-                response_length=len(final_text),
+                response_length=len(round_response.text),
                 total_cost_usd=round(current_cost, 6),
             )
             yield AgentCompleted(
-                text=final_text,
+                text=round_response.text,
                 iterations=iteration,
                 total_input_tokens=total_input_tokens,
                 total_output_tokens=total_output_tokens,
@@ -170,53 +146,56 @@ async def run_agent_stream(
             )
             return
 
-        # ---- LLM requested tools — execute them ----
-        conversation.append(content)
-        tool_response_parts: list[types.Part] = []
+        # ---- LLM requested tools — record the assistant turn, then execute ----
+        conversation.append(
+            AgentMessage(
+                role="assistant",
+                content=round_response.text,
+                tool_calls=list(round_response.tool_calls),
+            )
+        )
 
-        for fc in function_calls:
-            if fc.name is None:
-                continue
-            name: str = fc.name
-            args = dict(fc.args) if fc.args else {}
-
-            yield ToolRequested(name=name, args=args, iteration=iteration)
+        for tc in round_response.tool_calls:
+            yield ToolRequested(name=tc.name, args=tc.args, iteration=iteration)
 
             tool_start = time.perf_counter()
             try:
-                result = await execute_tool(name, args, tool_context)
+                result: dict[str, object] = await execute_tool(tc.name, tc.args, tool_context)
                 duration_ms = (time.perf_counter() - tool_start) * 1000
                 yield ToolCompleted(
-                    name=name,
+                    name=tc.name,
                     iteration=iteration,
                     result_keys=list(result.keys()),
                     duration_ms=duration_ms,
                 )
             except ToolTimeoutError as exc:
-                duration_ms = (time.perf_counter() - tool_start) * 1000
-                result = {"error": "timeout", "tool": name, "detail": str(exc)}
+                result = {"error": "timeout", "tool": tc.name, "detail": str(exc)}
                 yield ToolFailed(
-                    name=name, iteration=iteration, error=str(exc), error_type="timeout"
+                    name=tc.name, iteration=iteration, error=str(exc), error_type="timeout"
                 )
             except ToolRefusedError as exc:
-                result = {"error": "tool_refused", "tool": name, "detail": str(exc)}
+                result = {"error": "tool_refused", "tool": tc.name, "detail": str(exc)}
                 yield ToolFailed(
-                    name=name, iteration=iteration, error=str(exc), error_type="refused"
+                    name=tc.name, iteration=iteration, error=str(exc), error_type="refused"
                 )
             except Exception as exc:
                 result = {"error": f"{type(exc).__name__}: {exc}"}
                 yield ToolFailed(
-                    name=name,
+                    name=tc.name,
                     iteration=iteration,
                     error=str(exc)[:200],
                     error_type="exception",
                 )
 
-            tool_response_parts.append(
-                types.Part.from_function_response(name=name, response=result)
+            # Append the tool result as the next conversation turn
+            conversation.append(
+                AgentMessage(
+                    role="tool",
+                    content=json.dumps(result, default=str),
+                    tool_call_id=tc.id,
+                    tool_name=tc.name,
+                )
             )
-
-        conversation.append(types.Content(role="user", parts=tool_response_parts))
 
     # ---- Loop exhausted ----
     final_cost = _safe_cost(chosen_model, total_input_tokens, total_output_tokens)

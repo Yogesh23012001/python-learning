@@ -10,7 +10,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from llm.errors import LLMRateLimitError
-from llm.interface import LLMResponse, StreamChunk
+from llm.interface import AgentMessage, AgentRoundResponse, LLMResponse, StreamChunk
 
 
 class MockProvider:
@@ -92,6 +92,23 @@ class MockProvider:
             is_final=True,
             input_tokens=len(prompt) // 4,
             output_tokens=len(text) // 4,
+        )
+
+    async def agent_round(
+        self,
+        *,
+        model: str,
+        messages: list[AgentMessage],
+        tool_schemas: list[dict[str, Any]],
+        max_output_tokens: int | None = None,
+    ) -> AgentRoundResponse:
+        """Always returns a fixed "Mock response" with no tool calls."""
+        await asyncio.sleep(self._latency)
+        return AgentRoundResponse(
+            text=self._fixed_response or "Mock response (no tools called).",
+            tool_calls=[],
+            input_tokens=sum(len(m.content) for m in messages) // 4,
+            output_tokens=5,
         )
 
 

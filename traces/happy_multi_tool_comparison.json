@@ -1,0 +1,29 @@
+{
+  "canary": {
+    "name": "happy_multi_tool_comparison",
+    "prompt": "Compare karpathy and torvalds GitHub scores and tell me the ratio",
+    "expected_tools": [
+      "lookup_github_user",
+      "lookup_github_user",
+      "calculate"
+    ],
+    "expected_failure_mode": null,
+    "max_iterations": 8,
+    "max_cost_usd": 0.1
+  },
+  "events": [
+    {
+      "type": "agent_started",
+      "prompt_length": 65,
+      "max_iterations": 8,
+      "model": "gemini-2.5-flash"
+    },
+    {
+      "type": "iteration_started",
+      "iteration": 1
+    }
+  ],
+  "actual_tools": [],
+  "verdict": "crash",
+  "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google."
+}

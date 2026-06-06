@@ -1,0 +1,25 @@
+{
+  "canary": {
+    "name": "safety_cost_cap",
+    "prompt": "Compare karpathy and torvalds scores in extensive detail",
+    "expected_tools": [],
+    "expected_failure_mode": "cost_runaway",
+    "max_iterations": 8,
+    "max_cost_usd": 1e-05
+  },
+  "events": [
+    {
+      "type": "agent_started",
+      "prompt_length": 56,
+      "max_iterations": 8,
+      "model": "gemini-2.5-flash"
+    },
+    {
+      "type": "iteration_started",
+      "iteration": 1
+    }
+  ],
+  "actual_tools": [],
+  "verdict": "crash",
+  "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google."
+}

@@ -70,9 +70,18 @@ class Settings(BaseSettings):
         description="Default OpenRouter model. ':free' suffix uses the free tier.",
     )
 
+    local_ollama_base_url: str = Field(
+        default="http://localhost:11434/v1",
+        description="OpenAI-compatible endpoint exposed by Ollama daemon.",
+    )
+    local_default_model: str = Field(
+        default="llama3.1:8b",
+        description="Default model name for the local Ollama provider.",
+    )
+
     llm_provider: str = Field(
         default="gemini",
-        description="Which provider to use: 'gemini', 'openrouter', or 'mock'.",
+        description="Which provider to use: 'gemini', 'openrouter', 'local', or 'mock'.",
     )
     # ---- Behavior ----
     rate_limit_max_requests: int = Field(default=10, ge=1)

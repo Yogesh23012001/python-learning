@@ -1,0 +1,25 @@
+{
+  "canary": {
+    "name": "safety_iteration_cap",
+    "prompt": "Call get_current_time, then lookup_github_user for torvalds, then lookup_github_user for antirez, then calculate their ratio, then call get_current_time again, then lookup torvalds again, doing each step separately",
+    "expected_tools": [],
+    "expected_failure_mode": "iteration_cap",
+    "max_iterations": 2,
+    "max_cost_usd": 0.1
+  },
+  "events": [
+    {
+      "type": "agent_started",
+      "prompt_length": 214,
+      "max_iterations": 2,
+      "model": "gemini-2.5-flash"
+    },
+    {
+      "type": "iteration_started",
+      "iteration": 1
+    }
+  ],
+  "actual_tools": [],
+  "verdict": "crash",
+  "error": "429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google."
+}

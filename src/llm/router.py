@@ -6,6 +6,7 @@ import hashlib
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
+from typing import Any
 
 import structlog
 from prometheus_client import Counter
@@ -18,7 +19,12 @@ from tenacity import (
 )
 
 from llm.errors import LLMRetryableError
-from llm.interface import LLMProvider, LLMResponse
+from llm.interface import (
+    AgentMessage,
+    AgentRoundResponse,
+    LLMProvider,
+    LLMResponse,
+)
 from llm.metrics import llm_calls_total
 from llm.pricing import calculate_cost_usd
 
@@ -75,6 +81,11 @@ class LLMRouter:
         self._default_model = default_model
         self._max_retries = max_retries
         self._cache = _PromptCache(ttl_seconds=cache_ttl_seconds)
+
+    @property
+    def default_model(self) -> str:
+        """The fallback model used when callers don't pass one explicitly."""
+        return self._default_model
 
     async def generate(
         self,
@@ -185,6 +196,58 @@ class LLMRouter:
             )
 
         return result
+
+    async def agent_round(
+        self,
+        *,
+        messages: list[AgentMessage],
+        tool_schemas: list[dict[str, Any]],
+        model: str | None = None,
+        max_output_tokens: int | None = None,
+    ) -> AgentRoundResponse:
+        """One round of an agent loop, provider-neutral.
+
+        Records llm_calls_total per attempt (success/failed). The router does
+        NOT cache or retry agent rounds — agent loops carry conversation state
+        and a cached/retried turn could produce inconsistent histories.
+        """
+        chosen_model = model or self._default_model
+        try:
+            response = await self._provider.agent_round(
+                model=chosen_model,
+                messages=messages,
+                tool_schemas=tool_schemas,
+                max_output_tokens=max_output_tokens,
+            )
+        except Exception as exc:
+            llm_calls_total.labels(
+                provider=self._provider.name,
+                model=chosen_model,
+                outcome="failed",
+            ).inc()
+            logger.warning(
+                "llm_agent_round_failed",
+                provider=self._provider.name,
+                model=chosen_model,
+                error_type=type(exc).__name__,
+                error=str(exc)[:200],
+            )
+            raise
+
+        llm_calls_total.labels(
+            provider=self._provider.name,
+            model=chosen_model,
+            outcome="success",
+        ).inc()
+        logger.info(
+            "llm_agent_round_completed",
+            provider=self._provider.name,
+            model=chosen_model,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+            tool_calls=len(response.tool_calls),
+        )
+        return response
 
     async def generate_stream(
         self,

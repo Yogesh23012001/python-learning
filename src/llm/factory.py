@@ -5,6 +5,7 @@ from __future__ import annotations
 from api.config import Settings
 
 from llm.providers.gemini import GeminiProvider
+from llm.providers.local_ollama import LocalOllamaProvider
 from llm.providers.mock import MockProvider
 from llm.providers.openrouter import OpenRouterProvider
 from llm.router import LLMRouter
@@ -33,6 +34,12 @@ def make_router(settings: Settings, *, use_mock: bool = False) -> LLMRouter:
                 api_key=settings.gemini_api_key.get_secret_value(),
             ),
             default_model=settings.gemini_default_model,
+        )
+
+    if settings.llm_provider == "local":
+        return LLMRouter(
+            provider=LocalOllamaProvider(base_url=settings.local_ollama_base_url),
+            default_model=settings.local_default_model,
         )
 
     raise RuntimeError(f"unknown llm_provider: {settings.llm_provider!r}")

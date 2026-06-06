@@ -1,8 +1,12 @@
-"""OpenRouter provider adapter.
+"""Local Ollama provider adapter.
 
-OpenRouter is an aggregator providing OpenAI-compatible access to dozens
-of LLM models from many providers (Anthropic, Google, Meta, DeepSeek, etc.).
-We talk to it via the OpenAI SDK pointed at OpenRouter's endpoint.
+Ollama exposes an OpenAI-compatible API at /v1. We talk to it via the OpenAI
+SDK with `base_url` pointed at localhost. Same protocol as OpenRouter but no
+provider-specific headers and `api_key` is ignored by the server.
+
+Tool calling reliability varies per model — `llama3.1:8b` works with the
+proper `tool_calls` array; `qwen2.5:7b` (in Ollama 0.30.x) emits tool calls
+as text in `content`. Pick a known-good model for the agent loop.
 """
 
 from __future__ import annotations
@@ -18,9 +22,6 @@ from openai import (
     AsyncOpenAI,
     AsyncStream,
 )
-from openai import (
-    RateLimitError as OpenAIRateLimitError,
-)
 from openai.types.chat import ChatCompletionChunk, ChatCompletionUserMessageParam
 from pydantic import BaseModel
 
@@ -29,40 +30,38 @@ from llm.errors import (
     LLMEmptyResponseError,
     LLMError,
     LLMOverloadedError,
-    LLMQuotaExceededError,
-    LLMRateLimitError,
     LLMRetryableError,
 )
-from llm.interface import AgentMessage, AgentRoundResponse, LLMResponse, StreamChunk
+from llm.interface import (
+    AgentMessage,
+    AgentRoundResponse,
+    LLMResponse,
+    StreamChunk,
+)
 from llm.providers._openai_compat import openai_agent_round
 
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/v1"
 
 
-def _classify_openrouter_error(exc: Exception) -> LLMError:
-    """Convert OpenAI-SDK errors into our shared typed hierarchy."""
-    if isinstance(exc, OpenAIRateLimitError):
-        # OpenRouter daily-cap errors come through with rate-limit semantics
-        # but the message usually clarifies "free-models-per-day" vs minute-rate
-        msg = str(exc).lower()
-        if "daily" in msg or "per-day" in msg or "quota" in msg:
-            return LLMQuotaExceededError(_short(exc))
-        return LLMRateLimitError(_short(exc))
+def _classify_ollama_error(exc: Exception) -> LLMError:
+    """Map OpenAI-SDK errors from Ollama to our typed hierarchy.
+
+    Ollama is local so there are no rate limits or quotas, but the daemon
+    can be down (ConnectionError) or a model name can be wrong (404).
+    """
+    if isinstance(exc, APIConnectionError | APITimeoutError):
+        return LLMRetryableError(_short(exc))
 
     if isinstance(exc, APIStatusError):
         status = exc.status_code
-        if status == 429:
-            msg = str(exc).lower()
-            if "daily" in msg or "quota" in msg:
-                return LLMQuotaExceededError(_short(exc))
-            return LLMRateLimitError(_short(exc))
+        if status == 404:
+            # Model not pulled — not retryable; surface as overload-ish so it
+            # propagates without infinite retries.
+            return LLMOverloadedError(f"model not found: {_short(exc)}")
         if status == 400 and ("context" in str(exc).lower() or "tokens" in str(exc).lower()):
             return LLMContextTooLongError(_short(exc))
         if status in (502, 503, 504):
             return LLMOverloadedError(_short(exc))
-
-    if isinstance(exc, APIConnectionError | APITimeoutError):
-        return LLMRetryableError(_short(exc))
 
     if isinstance(exc, APIError):
         return LLMRetryableError(_short(exc))
@@ -74,21 +73,18 @@ def _short(exc: Exception) -> str:
     return str(exc).split("\n")[0][:200]
 
 
-class OpenRouterProvider:
-    """OpenAI-compatible adapter pointed at OpenRouter."""
+class LocalOllamaProvider:
+    """Adapter for a local Ollama daemon (OpenAI-compatible)."""
 
-    name = "openrouter"
+    name = "local_ollama"
 
-    def __init__(self, *, api_key: str) -> None:
-        self._client = AsyncOpenAI(
-            api_key=api_key,
-            base_url=OPENROUTER_BASE_URL,
-            default_headers={
-                # OpenRouter uses these for usage attribution & ranking
-                "HTTP-Referer": "https://github.com/yogesh23012001/python-learning",
-                "X-Title": "python-learning",
-            },
-        )
+    def __init__(
+        self,
+        *,
+        base_url: str = DEFAULT_OLLAMA_BASE_URL,
+        api_key: str = "ollama",  # Ollama ignores this; any non-empty string works
+    ) -> None:
+        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     async def generate(
         self,
@@ -102,9 +98,10 @@ class OpenRouterProvider:
             {"role": "user", "content": prompt},
         ]
 
-        # OpenAI-compatible structured output: response_format with json_schema
         extra_kwargs: dict[str, Any] = {}
         if response_schema is not None:
+            # OpenAI structured output. Ollama support varies by model; not
+            # all local models honor this. Use with caution.
             extra_kwargs["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {
@@ -123,10 +120,10 @@ class OpenRouterProvider:
                 **extra_kwargs,
             )
         except Exception as exc:
-            raise _classify_openrouter_error(exc) from exc
+            raise _classify_ollama_error(exc) from exc
 
         if not completion.choices:
-            raise LLMEmptyResponseError("openrouter returned no choices")
+            raise LLMEmptyResponseError("ollama returned no choices")
 
         choice = completion.choices[0]
         text = choice.message.content or ""
@@ -157,7 +154,6 @@ class OpenRouterProvider:
             extra_kwargs["max_tokens"] = max_output_tokens
 
         try:
-            # stream=True ⇒ AsyncStream; cast helps mypy narrow the union return.
             stream: AsyncStream[ChatCompletionChunk] = await self._client.chat.completions.create(
                 model=model,
                 messages=messages,
@@ -165,22 +161,21 @@ class OpenRouterProvider:
                 **extra_kwargs,
             )
         except Exception as exc:
-            raise _classify_openrouter_error(exc) from exc
+            raise _classify_ollama_error(exc) from exc
 
         input_tokens = 0
         output_tokens = 0
 
         async for chunk in stream:
-            # Usage chunks arrive separately, with no choices populated
             if chunk.usage is not None:
                 input_tokens = chunk.usage.prompt_tokens or 0
                 output_tokens = chunk.usage.completion_tokens or 0
-                continue
             if not chunk.choices:
                 continue
             delta = chunk.choices[0].delta
-            if delta and delta.content:
-                yield StreamChunk(text=delta.content)
+            text = delta.content or ""
+            if text:
+                yield StreamChunk(text=text)
 
         yield StreamChunk(
             text="",
@@ -199,7 +194,7 @@ class OpenRouterProvider:
     ) -> AgentRoundResponse:
         return await openai_agent_round(
             client=self._client,
-            classify=_classify_openrouter_error,
+            classify=_classify_ollama_error,
             model=model,
             messages=messages,
             tool_schemas=tool_schemas,
