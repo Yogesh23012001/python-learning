@@ -278,3 +278,6 @@ behavior failures (description, prompt, model) BEFORE concluding anything
 about descriptions. Three apparent description failures turned out to be
 one rate-limit failure repeated three times. Confident misdiagnosis of
 failure cause is the #1 bug class in production agent debugging.
+
+
+
