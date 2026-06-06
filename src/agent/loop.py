@@ -65,8 +65,9 @@ async def run_agent_stream(
     *,
     llm: LLMRouter,
     tool_context: ToolContext,
-    max_iterations: int = 8,
-    max_cost_usd: float = 0.10,
+    max_iterations: int = 4,
+    max_cost_usd: float = 0.02,
+    max_output_tokens: int = 512,
     model: str | None = None,
 ) -> AsyncIterator[AgentEvent]:
     """Run the agent and yield events as they happen.
@@ -105,7 +106,7 @@ async def run_agent_stream(
             messages=conversation,
             tool_schemas=TOOL_SCHEMAS,
             model=chosen_model,
-            max_output_tokens=1024,
+            max_output_tokens=max_output_tokens,
         )
 
         total_input_tokens += round_response.input_tokens

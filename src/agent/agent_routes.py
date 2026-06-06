@@ -8,6 +8,7 @@ from dataclasses import asdict
 from typing import Annotated, Any
 
 import structlog
+from api.config import get_settings
 from api.mertics import (
     agent_cost_usd,
     agent_iterations,
@@ -57,8 +58,11 @@ ToolContextDep = Annotated[ToolContext, Depends(get_tool_context)]
 
 class AgentRunRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
-    max_iterations: int = Field(default=8, ge=1, le=15)
-    max_cost_usd: float = Field(default=0.10, gt=0.0, le=5.0)
+    # All limits default to Settings values when omitted — see api/config.py:
+    # AGENT_MAX_ITERATIONS, AGENT_MAX_COST_USD, AGENT_MAX_OUTPUT_TOKENS.
+    max_iterations: int | None = Field(default=None, ge=1, le=15)
+    max_cost_usd: float | None = Field(default=None, gt=0.0, le=5.0)
+    max_output_tokens: int | None = Field(default=None, ge=64, le=4096)
     model: str | None = Field(default=None)
 
 
@@ -89,7 +93,18 @@ async def agent_run(
     payload: AgentRunRequest,
 ) -> AgentRunResponse:
     """Run the agent and return the final aggregated result as JSON."""
-    logger.info("agent_run_request", prompt_length=len(payload.prompt))
+    settings = get_settings()
+    max_iterations = payload.max_iterations or settings.agent_max_iterations
+    max_cost_usd = payload.max_cost_usd or settings.agent_max_cost_usd
+    max_output_tokens = payload.max_output_tokens or settings.agent_max_output_tokens
+
+    logger.info(
+        "agent_run_request",
+        prompt_length=len(payload.prompt),
+        max_iterations=max_iterations,
+        max_cost_usd=max_cost_usd,
+        max_output_tokens=max_output_tokens,
+    )
 
     tool_calls: list[ToolCallRecord] = []
     terminal: AgentCompleted | AgentStopped | None = None
@@ -99,8 +114,9 @@ async def agent_run(
             payload.prompt,
             llm=llm,
             tool_context=context,
-            max_iterations=payload.max_iterations,
-            max_cost_usd=payload.max_cost_usd,
+            max_iterations=max_iterations,
+            max_cost_usd=max_cost_usd,
+            max_output_tokens=max_output_tokens,
             model=payload.model,
         ):
             if isinstance(event, ToolRequested):
@@ -169,7 +185,18 @@ async def agent_run_stream(
     payload: AgentRunRequest,
 ) -> StreamingResponse:
     """Stream agent events live as SSE."""
-    logger.info("agent_stream_request", prompt_length=len(payload.prompt))
+    settings = get_settings()
+    max_iterations = payload.max_iterations or settings.agent_max_iterations
+    max_cost_usd = payload.max_cost_usd or settings.agent_max_cost_usd
+    max_output_tokens = payload.max_output_tokens or settings.agent_max_output_tokens
+
+    logger.info(
+        "agent_stream_request",
+        prompt_length=len(payload.prompt),
+        max_iterations=max_iterations,
+        max_cost_usd=max_cost_usd,
+        max_output_tokens=max_output_tokens,
+    )
 
     async def _generate() -> AsyncIterator[str]:
         try:
@@ -177,8 +204,9 @@ async def agent_run_stream(
                 payload.prompt,
                 llm=llm,
                 tool_context=context,
-                max_iterations=payload.max_iterations,
-                max_cost_usd=payload.max_cost_usd,
+                max_iterations=max_iterations,
+                max_cost_usd=max_cost_usd,
+                max_output_tokens=max_output_tokens,
                 model=payload.model,
             ):
                 yield _event_to_sse(event)

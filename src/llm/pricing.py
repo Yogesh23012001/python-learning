@@ -28,6 +28,11 @@ PRICING: dict[str, ModelPricing] = {
     "gpt-4.1-mini": ModelPricing(0.40, 1.60),
     # Local (for future use)
     "llama3.1:8b": ModelPricing(0.00, 0.00),
+    # Additional Claude entries (dated variants + Sonnet 4.5 / Opus 4.5)
+    "claude-sonnet-4-5": ModelPricing(3.00, 15.00),
+    "claude-opus-4-5": ModelPricing(15.00, 75.00),
+    "claude-haiku-4-5-20251001": ModelPricing(0.80, 4.00),
+    # OpenRouter (for future use)
 }
 
 

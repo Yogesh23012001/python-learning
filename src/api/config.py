@@ -83,6 +83,30 @@ class Settings(BaseSettings):
         default="gemini",
         description="Which provider to use: 'gemini', 'openrouter', 'local', or 'mock'.",
     )
+
+    # ---- Agent cost guardrails ----
+    # Tight defaults to keep an accidental loop on a paid provider (Anthropic,
+    # OpenAI) from racking up real money. Loosen per-call via the HTTP payload
+    # if you actually need a longer run.
+    agent_max_cost_usd: float = Field(
+        default=0.02,
+        gt=0.0,
+        le=5.0,
+        description="Hard ceiling on USD spent per agent run.",
+    )
+    agent_max_iterations: int = Field(
+        default=4,
+        ge=1,
+        le=15,
+        description="Maximum tool-use iterations before the agent bails out.",
+    )
+    agent_max_output_tokens: int = Field(
+        default=512,
+        ge=64,
+        le=4096,
+        description="max_tokens on each LLM round inside the agent loop.",
+    )
+
     # ---- Behavior ----
     rate_limit_max_requests: int = Field(default=10, ge=1)
     rate_limit_window_seconds: float = Field(default=60.0, gt=0.0)
