@@ -275,7 +275,15 @@ async def unhandled_exception_handler(
     request: Request,
     exc: Exception,
 ) -> JSONResponse:
-    """Catch-all for unexpected errors. Never leak the traceback to clients."""
+    """Catch-all for unexpected errors. Never leak the traceback to clients.
+
+    Re-raises framework exceptions (HTTPException, RequestValidationError) so
+    their dedicated handlers can run — otherwise this swallows them as 500s.
+    """
+    from fastapi import HTTPException
+
+    if isinstance(exc, HTTPException | RequestValidationError):
+        raise exc
     request_id = getattr(request.state, "request_id", "unknown")
     logger.exception(
         "unhandled_exception: type=%s request_id=%s",
@@ -297,13 +305,19 @@ async def validation_exception_handler(
     request: Request,
     exc: RequestValidationError,
 ) -> JSONResponse:
-    """Customize Pydantic validation errors."""
+    """Customize Pydantic validation errors.
+
+    Pydantic v2's `errors()` puts the raw `ValueError` exception object inside
+    `ctx["error"]` for custom `@field_validator` failures — not JSON-serializable.
+    Strip `ctx` so JSON encoding always succeeds.
+    """
     request_id = getattr(request.state, "request_id", "unknown")
+    detail = [{k: v for k, v in err.items() if k != "ctx"} for err in exc.errors()]
     return JSONResponse(
         status_code=422,
         content={
             "error": "ValidationError",
-            "detail": exc.errors(),
+            "detail": detail,
             "request_id": request_id,
         },
     )

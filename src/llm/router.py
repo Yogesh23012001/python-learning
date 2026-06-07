@@ -87,6 +87,11 @@ class LLMRouter:
         """The fallback model used when callers don't pass one explicitly."""
         return self._default_model
 
+    @property
+    def provider_name(self) -> str:
+        """The configured provider's name (e.g. 'gemini', 'anthropic')."""
+        return self._provider.name
+
     async def generate(
         self,
         prompt: str,

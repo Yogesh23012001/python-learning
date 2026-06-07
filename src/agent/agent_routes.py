@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import AsyncIterator
 from dataclasses import asdict
+from decimal import Decimal
 from typing import Annotated, Any
 
 import structlog
@@ -15,10 +16,12 @@ from api.mertics import (
     agent_runs_total,
     agent_tool_calls_total,
 )
+from api.model_orm import AgentRun
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from llm.router import LLMRouter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent.events import (
     AgentCompleted,
@@ -56,6 +59,16 @@ def get_tool_context(request: Request) -> ToolContext:
 
 ToolContextDep = Annotated[ToolContext, Depends(get_tool_context)]
 
+ALLOWED_MODELS = {
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-4-5",
+    "claude-opus-4-5",
+    "llama3.1:8b",
+    # add more as you support them
+}
+
 
 class AgentRunRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=4000)
@@ -65,6 +78,29 @@ class AgentRunRequest(BaseModel):
     max_cost_usd: float | None = Field(default=None, gt=0.0, le=5.0)
     max_output_tokens: int | None = Field(default=None, ge=64, le=4096)
     model: str | None = Field(default=None)
+
+    @field_validator("prompt")
+    @classmethod
+    def _reject_obvious_attacks(cls, v: str) -> str:
+        # Lightweight defense — not exhaustive, just catches the lazy stuff
+        lowered = v.lower()
+        if "ignore previous instructions" in lowered or "ignore all prior" in lowered:
+            # Not auto-rejecting; logging for monitoring purposes
+            # Real defense lives in system prompt + tool denylist
+            import structlog
+
+            structlog.get_logger(__name__).warning(
+                "potential_prompt_injection",
+                prompt_preview=v[:200],
+            )
+        return v
+
+    @field_validator("model")
+    @classmethod
+    def _validate_model(cls, v: str | None) -> str | None:
+        if v is not None and v not in ALLOWED_MODELS:
+            raise ValueError(f"unsupported model: {v!r}. Allowed: {sorted(ALLOWED_MODELS)}")
+        return v
 
 
 class ToolCallRecord(BaseModel):
@@ -80,6 +116,48 @@ class AgentRunResponse(BaseModel):
     total_input_tokens: int = 0
     total_output_tokens: int = 0
     total_cost_usd: float = 0.0
+
+
+async def _persist_agent_run(
+    *,
+    session_factory: async_sessionmaker[AsyncSession] | None,
+    request_id: str,
+    prompt: str,
+    model: str,
+    provider: str,
+    iterations: int,
+    input_tokens: int,
+    output_tokens: int,
+    cost_usd: float,
+    outcome: str,
+    text_response: str | None,
+    tool_calls: list[dict[str, Any]],
+) -> None:
+    """Append one row to agent_runs. Swallows errors — audit failure must not
+    break the user-visible response.
+    """
+    if session_factory is None or not request_id:
+        return
+    try:
+        async with session_factory() as session:
+            session.add(
+                AgentRun(
+                    request_id=request_id,
+                    prompt=prompt,
+                    model=model,
+                    provider=provider,
+                    iterations=iterations,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    cost_usd=Decimal(str(round(cost_usd, 6))),
+                    outcome=outcome,
+                    text_response=text_response,
+                    tool_calls=tool_calls,
+                )
+            )
+            await session.commit()
+    except Exception:
+        logger.exception("agent_run_audit_failed", request_id=request_id)
 
 
 # ============================================================
@@ -109,6 +187,7 @@ async def agent_run(
 
     tool_calls: list[ToolCallRecord] = []
     terminal: AgentCompleted | AgentStopped | None = None
+    chosen_model = payload.model or llm.default_model
 
     try:
         async for event in run_agent_stream(
@@ -131,6 +210,20 @@ async def agent_run(
                 terminal = event
     except Exception as exc:
         logger.exception("agent_run_failed")
+        await _persist_agent_run(
+            session_factory=context.session_factory,
+            request_id=context.request_id,
+            prompt=payload.prompt,
+            model=chosen_model,
+            provider=llm.provider_name,
+            iterations=0,
+            input_tokens=0,
+            output_tokens=0,
+            cost_usd=0.0,
+            outcome="error",
+            text_response=str(exc)[:500],
+            tool_calls=[tc.model_dump() for tc in tool_calls],
+        )
         raise HTTPException(status_code=500, detail=f"agent failed: {exc}") from exc
 
     if terminal is None:
@@ -141,21 +234,51 @@ async def agent_run(
     agent_iterations.observe(terminal.iterations)
     agent_cost_usd.observe(terminal.total_cost_usd)
 
+    serialized_tool_calls = [tc.model_dump() for tc in tool_calls]
+
     if isinstance(terminal, AgentStopped):
         agent_runs_total.labels(outcome=terminal.reason).inc()
+        await _persist_agent_run(
+            session_factory=context.session_factory,
+            request_id=context.request_id,
+            prompt=payload.prompt,
+            model=chosen_model,
+            provider=llm.provider_name,
+            iterations=terminal.iterations,
+            input_tokens=terminal.total_input_tokens,
+            output_tokens=terminal.total_output_tokens,
+            cost_usd=terminal.total_cost_usd,
+            outcome=terminal.reason,
+            text_response=None,
+            tool_calls=serialized_tool_calls,
+        )
         raise HTTPException(
             status_code=422,
             detail={
                 "error": terminal.reason,
                 "message": f"agent stopped due to {terminal.reason}",
                 "iterations": terminal.iterations,
-                "tool_calls": [tc.model_dump() for tc in tool_calls],
+                "tool_calls": serialized_tool_calls,
                 "total_cost_usd": round(terminal.total_cost_usd, 6),
             },
         )
 
     # AgentCompleted normal path
     agent_runs_total.labels(outcome="completed").inc()
+    await _persist_agent_run(
+        session_factory=context.session_factory,
+        request_id=context.request_id,
+        prompt=payload.prompt,
+        model=chosen_model,
+        provider=llm.provider_name,
+        iterations=terminal.iterations,
+        input_tokens=terminal.total_input_tokens,
+        output_tokens=terminal.total_output_tokens,
+        cost_usd=terminal.total_cost_usd,
+        outcome="completed",
+        text_response=terminal.text,
+        tool_calls=serialized_tool_calls,
+    )
     return AgentRunResponse(
         text=terminal.text,
         iterations=terminal.iterations,
