@@ -26,6 +26,7 @@ class AgentStarted:
     prompt_length: int = 0
     max_iterations: int = 0
     model: str = ""
+    request_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,7 @@ class IterationStarted:
 
     iteration: int
     type: Literal["iteration_started"] = "iteration_started"
+    request_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,7 @@ class ToolRequested:
     args: dict[str, Any]
     iteration: int
     type: Literal["tool_requested"] = "tool_requested"
+    request_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -55,6 +58,7 @@ class ToolCompleted:
     result_keys: list[str] = field(default_factory=list)
     duration_ms: float = 0.0
     type: Literal["tool_completed"] = "tool_completed"
+    request_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -66,6 +70,7 @@ class ToolFailed:
     error: str = ""
     error_type: Literal["timeout", "refused", "exception"] = "exception"
     type: Literal["tool_failed"] = "tool_failed"
+    request_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -78,6 +83,7 @@ class AgentCompleted:
     total_output_tokens: int = 0
     total_cost_usd: float = 0.0
     type: Literal["agent_completed"] = "agent_completed"
+    request_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -90,6 +96,7 @@ class AgentStopped:
     total_output_tokens: int = 0
     total_cost_usd: float = 0.0
     type: Literal["agent_stopped"] = "agent_stopped"
+    request_id: str = ""
 
 
 # Union type for all events

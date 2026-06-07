@@ -38,6 +38,7 @@ class ToolContext:
 
     github_client: GitHubClient | None = None
     session_factory: async_sessionmaker[AsyncSession] | None = None
+    request_id: str = ""
 
 
 class ToolRefusedError(Exception):

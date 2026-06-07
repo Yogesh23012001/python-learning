@@ -50,6 +50,7 @@ def get_tool_context(request: Request) -> ToolContext:
     return ToolContext(
         github_client=getattr(request.app.state, "github_client", None),
         session_factory=getattr(request.app.state, "session_factory", None),
+        request_id=getattr(request.state, "request_id", ""),
     )
 
 
@@ -118,6 +119,7 @@ async def agent_run(
             max_cost_usd=max_cost_usd,
             max_output_tokens=max_output_tokens,
             model=payload.model,
+            request_id=context.request_id,
         ):
             if isinstance(event, ToolRequested):
                 tool_calls.append(ToolCallRecord(name=event.name, args=event.args))
@@ -208,6 +210,7 @@ async def agent_run_stream(
                 max_cost_usd=max_cost_usd,
                 max_output_tokens=max_output_tokens,
                 model=payload.model,
+                request_id=context.request_id,
             ):
                 yield _event_to_sse(event)
         except Exception as exc:

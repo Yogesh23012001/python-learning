@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from api.config import Settings
 
+from llm.providers.anthropic import AnthropicProvider
 from llm.providers.gemini import GeminiProvider
 from llm.providers.local_ollama import LocalOllamaProvider
 from llm.providers.mock import MockProvider
@@ -34,6 +35,17 @@ def make_router(settings: Settings, *, use_mock: bool = False) -> LLMRouter:
                 api_key=settings.gemini_api_key.get_secret_value(),
             ),
             default_model=settings.gemini_default_model,
+        )
+
+    if settings.llm_provider == "anthropic":
+        if settings.anthropic_api_key is None:
+            raise RuntimeError("ANTHROPIC_API_KEY not set")
+        return LLMRouter(
+            provider=AnthropicProvider(
+                api_key=settings.anthropic_api_key.get_secret_value(),
+                enable_prompt_cache=settings.anthropic_enable_prompt_cache,
+            ),
+            default_model=settings.anthropic_default_model,
         )
 
     if settings.llm_provider == "local":

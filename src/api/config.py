@@ -57,8 +57,13 @@ class Settings(BaseSettings):
     github_api_timeout_s: float = Field(default=15.0, gt=0.0, le=60.0)
     github_max_concurrency: int = Field(default=5, ge=1, le=50)
 
-    # ---- Future: LLM provider secrets ----
+    # ---- LLM provider secrets ----
     anthropic_api_key: SecretStr | None = Field(default=None)
+    anthropic_default_model: str = Field(default="claude-haiku-4-5-20251001")
+    anthropic_enable_prompt_cache: bool = Field(
+        default=False,
+        description="Cache system prompt + tool defs on each agent_round call.",
+    )
     openai_api_key: SecretStr | None = Field(default=None)
 
     gemini_api_key: SecretStr | None = Field(default=None)
@@ -81,7 +86,7 @@ class Settings(BaseSettings):
 
     llm_provider: str = Field(
         default="gemini",
-        description="Which provider to use: 'gemini', 'openrouter', 'local', or 'mock'.",
+        description="Which provider to use: 'gemini', 'anthropic', 'openrouter', 'local', or 'mock'.",
     )
 
     # ---- Agent cost guardrails ----

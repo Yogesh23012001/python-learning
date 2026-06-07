@@ -69,6 +69,7 @@ async def run_agent_stream(
     max_cost_usd: float = 0.02,
     max_output_tokens: int = 512,
     model: str | None = None,
+    request_id: str = "",
 ) -> AsyncIterator[AgentEvent]:
     """Run the agent and yield events as they happen.
 
@@ -96,10 +97,11 @@ async def run_agent_stream(
         prompt_length=len(user_prompt),
         max_iterations=max_iterations,
         model=chosen_model,
+        request_id=request_id,
     )
 
     for iteration in range(1, max_iterations + 1):
-        yield IterationStarted(iteration=iteration)
+        yield IterationStarted(iteration=iteration, request_id=request_id)
 
         # ---- Call the LLM (provider-neutral) ----
         round_response = await llm.agent_round(
@@ -127,6 +129,7 @@ async def run_agent_stream(
                 total_input_tokens=total_input_tokens,
                 total_output_tokens=total_output_tokens,
                 total_cost_usd=current_cost,
+                request_id=request_id,
             )
             return
 
@@ -144,6 +147,7 @@ async def run_agent_stream(
                 total_input_tokens=total_input_tokens,
                 total_output_tokens=total_output_tokens,
                 total_cost_usd=current_cost,
+                request_id=request_id,
             )
             return
 
@@ -157,7 +161,9 @@ async def run_agent_stream(
         )
 
         for tc in round_response.tool_calls:
-            yield ToolRequested(name=tc.name, args=tc.args, iteration=iteration)
+            yield ToolRequested(
+                name=tc.name, args=tc.args, iteration=iteration, request_id=request_id
+            )
 
             tool_start = time.perf_counter()
             try:
@@ -168,16 +174,25 @@ async def run_agent_stream(
                     iteration=iteration,
                     result_keys=list(result.keys()),
                     duration_ms=duration_ms,
+                    request_id=request_id,
                 )
             except ToolTimeoutError as exc:
                 result = {"error": "timeout", "tool": tc.name, "detail": str(exc)}
                 yield ToolFailed(
-                    name=tc.name, iteration=iteration, error=str(exc), error_type="timeout"
+                    name=tc.name,
+                    iteration=iteration,
+                    error=str(exc),
+                    error_type="timeout",
+                    request_id=request_id,
                 )
             except ToolRefusedError as exc:
                 result = {"error": "tool_refused", "tool": tc.name, "detail": str(exc)}
                 yield ToolFailed(
-                    name=tc.name, iteration=iteration, error=str(exc), error_type="refused"
+                    name=tc.name,
+                    iteration=iteration,
+                    error=str(exc),
+                    error_type="refused",
+                    request_id=request_id,
                 )
             except Exception as exc:
                 result = {"error": f"{type(exc).__name__}: {exc}"}
@@ -186,6 +201,7 @@ async def run_agent_stream(
                     iteration=iteration,
                     error=str(exc)[:200],
                     error_type="exception",
+                    request_id=request_id,
                 )
 
             # Append the tool result as the next conversation turn
@@ -211,4 +227,5 @@ async def run_agent_stream(
         total_input_tokens=total_input_tokens,
         total_output_tokens=total_output_tokens,
         total_cost_usd=final_cost,
+        request_id=request_id,
     )

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 
@@ -159,9 +160,9 @@ async def main() -> None:
                 results.append(trace)
 
                 # Write per-canary trace file
-                trace_path = TRACES_DIR / f"{canary.name}.json"
+                provider_tag = os.environ.get("LLM_PROVIDER", "unknown")
+                trace_path = TRACES_DIR / f"{provider_tag}__{canary.name}.json"
                 trace_path.write_text(json.dumps(trace, indent=2, default=str))
-
                 verdict = trace["verdict"]
                 marker = "✓" if verdict.startswith("ok") else "✗"
                 print(f"  {marker} {verdict}")
