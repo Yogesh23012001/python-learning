@@ -310,6 +310,51 @@ async def summarize_text(args: dict[str, Any], context: ToolContext) -> dict[str
     }
 
 
+async def fetch_top_repos(args: dict[str, Any], context: ToolContext) -> dict[str, Any]:
+    """Fetch a GitHub user's top repositories by star count.
+
+    Returns top 5 repos with name, description, primary language, stars.
+    Useful for summaries that want to mention specific projects, not just
+    aggregate stats.
+    """
+    login = args.get("login")
+    if not login or not isinstance(login, str):
+        return {"error": "missing 'login' (string) argument"}
+    if not login.replace("-", "").isalnum() or len(login) > 39:
+        return {"error": f"invalid github login: {login!r}"}
+
+    if context.github_client is None:
+        return {"error": "github_client not configured"}
+
+    # The actual fetch — fills in based on your existing client patterns
+    try:
+        repos = await context.github_client.get_user_repos(login)
+    except UserNotFoundError:
+        return {"error": "user_not_found", "login": login}
+    except RateLimitError:
+        return {"error": "github_rate_limit"}
+
+    # Exclude forks (matches score_user's "own repos" filter), sort by stars,
+    # take top 5. Repos are GitHubRepo Pydantic models — use attribute access.
+    own_repos = [r for r in repos if not r.fork]
+    sorted_repos = sorted(own_repos, key=lambda r: r.stargazers_count, reverse=True)[:5]
+
+    return {
+        "login": login,
+        "count": len(sorted_repos),
+        "repos": [
+            {
+                "name": r.name,
+                "description": (r.description or "")[:200],  # truncate long descriptions
+                "language": r.language,
+                "stars": r.stargazers_count,
+                "url": r.html_url,
+            }
+            for r in sorted_repos
+        ],
+    }
+
+
 # ============================================================
 # Tool schemas (described to the LLM)
 # ============================================================
@@ -451,7 +496,30 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "required": ["login"],
         },
     },
+    {
+        "name": "fetch_top_repos",
+        "description": (
+            "Fetch a GitHub user's top 5 repositories ranked by star count. "
+            "Returns each repo's name, description, primary language, and star count. "
+            "Use this when generating a developer summary, when the user asks about "
+            "someone's notable projects, or when a comparison needs specific repository "
+            "names — NOT for general profile stats (use lookup_github_user instead)."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "login": {
+                    "type": "string",
+                    "description": "The GitHub username (login), 1-39 chars, alphanumeric and hyphens.",
+                },
+            },
+            "required": ["login"],
+        },
+    },
 ]
+
+
+# src/agent/tools.py
 
 
 # ============================================================
@@ -467,6 +535,7 @@ HANDLERS: dict[str, ToolHandler] = {
     "calculate": calculate,
     "web_search": web_search,
     "summarize_text": summarize_text,
+    "fetch_top_repos": fetch_top_repos,
 }
 
 DEFAULT_TOOL_TIMEOUT_S = 15.0

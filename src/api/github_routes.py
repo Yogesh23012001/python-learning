@@ -393,11 +393,12 @@ async def generate_and_save_summary_agentic(
     # ============================================================
     prompt = (
         f"Generate a developer summary for the GitHub user '{username}'. "
-        f"Use the lookup_github_user tool to fetch their profile data. "
-        f"Then write a 3-5 sentence summary covering: their developer profile "
-        f"(stars, followers, repos), what they're notable for, and one "
-        f"observation about their GitHub presence. Be specific and use the "
-        f"actual numbers from the lookup."
+        f"Use the lookup_github_user tool to fetch their profile data, "
+        f"and use fetch_top_repos to identify their top repositories by star count. "
+        f"Then write a 2 sentence summary covering: their developer profile "
+        f"(stars, followers, repos), their notable projects (mention 2-3 by name), "
+        f"and one observation about their GitHub presence. Use the actual data "
+        f"from the tool calls — do not invent project names."
     )
 
     actual_tools: list[str] = []

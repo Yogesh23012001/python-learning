@@ -25,6 +25,8 @@ class GitHubRepo(BaseModel):
     forks_count: int = Field(ge=0)
     language: str | None = None
     fork: bool
+    description: str | None = None
+    html_url: str | None = None
 
 
 class UserScore(BaseModel):
