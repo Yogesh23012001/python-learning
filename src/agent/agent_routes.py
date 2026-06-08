@@ -31,6 +31,7 @@ from agent.events import (
     ToolFailed,
     ToolRequested,
 )
+from agent.guardrails import check_input, check_output
 from agent.loop import run_agent_stream
 from agent.tools import ToolContext
 
@@ -176,7 +177,25 @@ async def agent_run(
     max_iterations = payload.max_iterations or settings.agent_max_iterations
     max_cost_usd = payload.max_cost_usd or settings.agent_max_cost_usd
     max_output_tokens = payload.max_output_tokens or settings.agent_max_output_tokens
-
+    # ============================================================
+    # Input guardrails — run BEFORE the agent does any work
+    # ============================================================
+    guard_result = check_input(payload.prompt)
+    if not guard_result.passed:
+        logger.warning(
+            "input_guardrail_blocked",
+            request_id=context.request_id,
+            reason=guard_result.reason,
+            matched_pattern=guard_result.matched_pattern,
+            prompt_preview=payload.prompt[:200],
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "guardrail_blocked",
+                "reason": guard_result.reason,
+            },
+        )
     logger.info(
         "agent_run_request",
         prompt_length=len(payload.prompt),
@@ -279,6 +298,27 @@ async def agent_run(
         text_response=terminal.text,
         tool_calls=serialized_tool_calls,
     )
+
+    if isinstance(terminal, AgentCompleted):
+        output_check = check_output(terminal.text)
+        if not output_check.passed:
+            logger.warning(
+                "output_guardrail_blocked",
+                request_id=context.request_id,
+                reason=output_check.reason,
+                matched_pattern=output_check.matched_pattern,
+                response_length=len(terminal.text),
+            )
+            # Replace the text with a sanitized message — don't leak the offending content
+            terminal = AgentCompleted(
+                text="[Response withheld by output guardrail. This event has been logged for review.]",
+                iterations=terminal.iterations,
+                total_input_tokens=terminal.total_input_tokens,
+                total_output_tokens=terminal.total_output_tokens,
+                total_cost_usd=terminal.total_cost_usd,
+                request_id=terminal.request_id,
+            )
+
     return AgentRunResponse(
         text=terminal.text,
         iterations=terminal.iterations,

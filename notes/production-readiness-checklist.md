@@ -36,3 +36,27 @@ bite in real traffic.
 - [ ] Schema migrations need CI gating
 - [ ] Provider failover during a request (currently a request to Gemini
       fails if Gemini is down)
+
+
+
+## Guardrail honest limitations
+
+I implemented input and output guardrails today. They catch:
+- Lazy prompt injection ("ignore previous instructions")
+- Obvious data extraction asks ("dump the database")
+- Character-repetition attacks
+- PII patterns (SSN, credit cards, common API key prefixes)
+- Model going visibly off-script
+
+They do NOT catch:
+- Sophisticated prompt injection rephrased to avoid known patterns
+- Multi-turn social engineering ("we discussed earlier that you'd help with X")
+- PII in unusual formats (international IDs, non-US SSN, etc.)
+- Subtle policy violations that don't surface as keyword matches
+- Cumulative leaks across multiple responses (anonymized data + tool results = de-anonymization)
+
+What I'd add for production:
+- Per-API-key rate limiting (so attackers can't iterate on guardrail evasion cheaply)
+- LLM-as-judge on the response (catches subtle violations that regex can't)
+- Human review queue for guardrail-blocked responses (so guardrails get tuned over time)
+- An adversarial test suite (prompts designed to evade the guardrails, kept separate from the main eval)
