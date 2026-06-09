@@ -1,0 +1,90 @@
+{
+  "timestamp": "2026-06-09T02-13-06Z",
+  "n_examples": 5,
+  "variants": [
+    "legacy",
+    "agentic_with_top_repos"
+  ],
+  "results": [
+    {
+      "id": "sum_001",
+      "login": "karpathy",
+      "variants": {
+        "legacy": {
+          "summary": "[ERROR: All connection attempts failed]",
+          "score": null,
+          "error": "endpoint failed or returned empty"
+        },
+        "agentic_with_top_repos": {
+          "summary": "[ERROR: All connection attempts failed]",
+          "score": null,
+          "error": "endpoint failed or returned empty"
+        }
+      }
+    },
+    {
+      "id": "sum_002",
+      "login": "torvalds",
+      "variants": {
+        "legacy": {
+          "summary": "[ERROR: All connection attempts failed]",
+          "score": null,
+          "error": "endpoint failed or returned empty"
+        },
+        "agentic_with_top_repos": {
+          "summary": "[ERROR: All connection attempts failed]",
+          "score": null,
+          "error": "endpoint failed or returned empty"
+        }
+      }
+    },
+    {
+      "id": "sum_003",
+      "login": "antirez",
+      "variants": {
+        "legacy": {
+          "summary": "[ERROR: All connection attempts failed]",
+          "score": null,
+          "error": "endpoint failed or returned empty"
+        },
+        "agentic_with_top_repos": {
+          "summary": "[ERROR: All connection attempts failed]",
+          "score": null,
+          "error": "endpoint failed or returned empty"
+        }
+      }
+    },
+    {
+      "id": "sum_004",
+      "login": "mojombo",
+      "variants": {
+        "legacy": {
+          "summary": "[ERROR: All connection attempts failed]",
+          "score": null,
+          "error": "endpoint failed or returned empty"
+        },
+        "agentic_with_top_repos": {
+          "summary": "[ERROR: All connection attempts failed]",
+          "score": null,
+          "error": "endpoint failed or returned empty"
+        }
+      }
+    },
+    {
+      "id": "sum_005",
+      "login": "yyx990803",
+      "variants": {
+        "legacy": {
+          "summary": "[ERROR: All connection attempts failed]",
+          "score": null,
+          "error": "endpoint failed or returned empty"
+        },
+        "agentic_with_top_repos": {
+          "summary": "[ERROR: All connection attempts failed]",
+          "score": null,
+          "error": "endpoint failed or returned empty"
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{"id": "sum_001", "login": "karpathy", "profile_type": "famous_ai", "notes": "Famous AI researcher. High stars, famous repos. Risk: agent might hallucinate from training knowledge even without tools."}
+{"id": "sum_002", "login": "torvalds", "profile_type": "famous_nonai", "notes": "Famous outside AI. Tests whether agent's training knowledge transfers (it should know Linux but might be less specific than AI domain)."}
+{"id": "sum_003", "login": "antirez", "profile_type": "known_specialist", "notes": "Known in databases/Redis world but less broadly famous than Karpathy/Torvalds. Tests whether agent characterizes accurately for medium-fame users."}
+{"id": "sum_004", "login": "mojombo", "profile_type": "known_historical", "notes": "GitHub co-founder. Active years ago but less active now. Tests whether agent reflects current state vs historical relevance."}
+{"id": "sum_005", "login": "yyx990803", "profile_type": "famous_oss", "notes": "Evan You, Vue.js creator. Famous in frontend but not as widely known as Karpathy. Mid-tier fame tests grounding."}

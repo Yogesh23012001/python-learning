@@ -1,0 +1,140 @@
+{
+  "timestamp": "2026-06-09T02-15-16Z",
+  "n_examples": 5,
+  "variants": [
+    "legacy",
+    "agentic_with_top_repos"
+  ],
+  "results": [
+    {
+      "id": "sum_001",
+      "login": "karpathy",
+      "variants": {
+        "legacy": {
+          "summary": "Andrej is an exceptionally prolific and influential developer with 63 public repositories that have collectively garnered 444,791 stars and 64,930 forks, demonstrating substantial reach and impact within the developer community. With 197,309 followers and a computed activity score of 633,875.2, he represents a top-tier open-source contributor whose work is widely recognized and actively used by thousands of developers. His high star-to-repo ratio and substantial fork count indicate that his projects are not only numerous but also widely adopted and built upon by others, positioning him as a major figure in open-source software development rather than a casual user.",
+          "specificity": 1.0,
+          "factual_grounding": 5,
+          "hallucination_risk": 4,
+          "readability": 5,
+          "overall": 0.9375,
+          "judge_reasoning": "All numerical claims (63 repos, 444,791 stars, 64,930 forks, 197,309 followers, 633,875.2 score) are exactly accurate. The summary makes some interpretive claims about 'influence' and 'impact' but these are reasonable inferences from the observable metrics rather than fabrication. The writing is clear, professional, and well-structured.",
+          "error": null
+        },
+        "agentic_with_top_repos": {
+          "summary": "## Developer Summary: Andrej Karpathy (karpathy)\n\nAndrej Karpathy is an exceptionally influential AI/ML developer with 444,791 total stars across 63 public repositories, 197,309 followers, and a developer score of 633,875\u2014demonstrating massive community recognition and impact in the deep learning space. His most notable projects include **autoresearch** (85,664 stars), **nanoGPT** (59,369 stars), and **nanochat** (54,771 stars), which showcase his focus on making large language models accessible and practical through simplified, efficient implementations; his GitHub presence reflects a commitment to educational and reproducible AI research, with multiple projects dedicated to demystifying LLM training for the community.",
+          "specificity": 1.0,
+          "factual_grounding": 2,
+          "hallucination_risk": 3,
+          "readability": 4,
+          "overall": 0.6125,
+          "judge_reasoning": "The summary accurately reports total stars (444,791), followers (197,309), repos (63), and score (633,875). However, the project names and star counts appear to be completely fabricated - there is no way to verify 'autoresearch', 'nanochat', or these specific star counts from the provided data. The characterizations about his focus and commitment are reasonable inferences for someone with this GitHub presence, but the invented project details significantly undermine factual grounding.",
+          "error": null
+        }
+      }
+    },
+    {
+      "id": "sum_002",
+      "login": "torvalds",
+      "variants": {
+        "legacy": {
+          "summary": "Linus Torvalds demonstrates exceptional reach and influence with over 306,000 followers and nearly 247,000 stars across his public repositories, indicating significant impact in the developer community. While his public repository count of 12 is modest, the substantial engagement metrics\u2014with over 63,000 total forks\u2014suggest these repositories are widely adopted and influential rather than numerous. His high computed score of 465,975.3 reflects his status as a major open-source contributor whose work has had widespread adoption and impact, rather than a casual user focused on quantity of projects.",
+          "specificity": 1.0,
+          "factual_grounding": 5,
+          "hallucination_risk": 5,
+          "readability": 5,
+          "overall": 1.0,
+          "judge_reasoning": "All numerical claims (306K followers, 247K stars, 12 repos, 63K forks, score 465,975.3) precisely match the ground truth data. The summary makes only reasonable, evidence-based inferences about impact and influence that are directly supported by the observable metrics. The writing is clear, professional, and well-structured.",
+          "error": null
+        },
+        "agentic_with_top_repos": {
+          "summary": "## Developer Summary for Linus Torvalds\n\n**Profile Overview:**\nLinus Torvalds is a legendary open-source developer with a commanding GitHub presence: 246,990 total stars across 12 public repositories, 63,555 forks, and an impressive following of 306,231 developers. His developer score of 465,975.3 reflects his monumental impact on the software community.\n\n**Notable Projects & Observation:**\nHis most notable project is the **Linux** kernel (235,857 stars), which dominates his GitHub presence and represents the cornerstone of modern computing infrastructure. Beyond the kernel, Torvalds maintains several other projects including **AudioNoise** (a digital audio effects tool) and **uemacs** (a microemacs editor variant), demonstrating diverse interests beyond systems programming. What stands out is that his dominance on GitHub is almost entirely driven by the Linux kernel\u2014a single project accounts for 95% of his stars, making him a rare example of a developer whose GitHub presence is synonymous with a foundational technology that powers billions of devices worldwide.",
+          "specificity": 1.0,
+          "factual_grounding": 5,
+          "hallucination_risk": 4,
+          "readability": 5,
+          "overall": 0.9375,
+          "judge_reasoning": "All factual claims (stars, repos, forks, followers, score) are accurately stated and match the ground truth data. The summary makes reasonable inferences about impact based on observable metrics (star count, follower count) rather than fabricating details. There is minimal interpretive characterization beyond what can be reasonably inferred from the data itself. The writing is clear, professional, and well-structured.",
+          "error": null
+        }
+      }
+    },
+    {
+      "id": "sum_003",
+      "login": "antirez",
+      "variants": {
+        "legacy": {
+          "summary": "Salvatore Sanfilippo is an exceptionally active developer with a strong open-source presence, maintaining 108 public repositories that have accumulated 65,902 stars and 7,822 forks. With 28,514 followers and a computed score of 90,154.2, he demonstrates significant reach and influence within the developer community. The high star count and fork activity across his repositories indicate he is a prolific open-source contributor rather than a casual user, likely responsible for projects that have achieved widespread adoption and developer interest.",
+          "specificity": 1.0,
+          "factual_grounding": 5,
+          "hallucination_risk": 4,
+          "readability": 5,
+          "overall": 0.9375,
+          "judge_reasoning": "All numerical claims (108 repos, 65,902 stars, 7,822 forks, 28,514 followers, score 90,154.2) are perfectly accurate. The characterization as 'exceptionally active' and 'prolific open-source contributor' is reasonable inference from the data, though 'widespread adoption' slightly oversteps observable facts. The summary is well-structured and professional.",
+          "error": null
+        },
+        "agentic_with_top_repos": {
+          "summary": "## Developer Summary: antirez (Salvatore Sanfilippo)\n\nSalvatore Sanfilippo (antirez) is an exceptionally prolific developer with 65,902 total stars across 108 public repositories, 28,514 followers, and a developer score of 90,154\u2014demonstrating significant influence in the open-source community. His most notable projects include **ds4** (a local inference engine with 13,255 stars), **kilo** (a minimalist text editor with 8,955 stars), and **disque** (a distributed message broker with 8,070 stars), showcasing his expertise in systems programming and C\u2014all his top repositories are written in C, indicating a deep focus on performance-critical, foundational tools that have earned widespread recognition and adoption across the developer ecosystem.",
+          "specificity": 1.0,
+          "factual_grounding": 5,
+          "hallucination_risk": 4,
+          "readability": 5,
+          "overall": 0.9375,
+          "judge_reasoning": "All numerical facts (stars, repos, followers, score) are accurately stated and match the ground truth data precisely. The characterizations ('exceptionally prolific', 'significant influence') are reasonable inferences from the objective metrics. The summary is well-written, clear, and professional with good structure.",
+          "error": null
+        }
+      }
+    },
+    {
+      "id": "sum_004",
+      "login": "mojombo",
+      "variants": {
+        "legacy": {
+          "summary": "Tom Preston-Werner is a highly active developer with substantial reach in the open-source community, maintaining 66 public repositories that have accumulated 7,885 stars and 1,413 forks across his projects. With 24,631 followers and a computed activity score of 18,133.3, he demonstrates significant influence and consistent engagement with the developer community. His portfolio suggests he is a dedicated open-source contributor rather than a casual user, with considerable traction on his public work.",
+          "specificity": 1.0,
+          "factual_grounding": 5,
+          "hallucination_risk": 4,
+          "readability": 5,
+          "overall": 0.9375,
+          "judge_reasoning": "All numerical claims (66 repos, 7,885 stars, 1,413 forks, 24,631 followers, 18,133.3 score) match the ground truth exactly. The characterizations like 'highly active' and 'substantial reach' are reasonable inferences from the data rather than fabrications. The writing is clear, well-structured, and professional.",
+          "error": null
+        },
+        "agentic_with_top_repos": {
+          "summary": "## Developer Summary for mojombo (Tom Preston-Werner)\n\n**Tom Preston-Werner** is a highly influential developer with 24,631 followers, 7,885 total stars across his work, and 66 public repositories, demonstrating a significant presence in the open-source community with a developer score of 18,133.3. His notable projects include **Chronic** (3,257 stars), a Ruby natural language date parser, **Grit** (2,022 stars), a Git repository interface library, and **Clippy** (938 stars), a clipboard widget utility, reflecting a diverse portfolio spanning Ruby, Erlang, and web technologies\u2014notably, while some of his earlier projects are no longer actively maintained, their lasting star counts indicate their historical impact and enduring utility to the developer community.",
+          "specificity": 1.0,
+          "factual_grounding": 5,
+          "hallucination_risk": 4,
+          "readability": 5,
+          "overall": 0.9375,
+          "judge_reasoning": "All factual claims (followers: 24,631, stars: 7,885, repos: 66, score: 18,133.3) are accurate and directly verifiable from the source data. The summary makes one minor interpretive claim about 'historical impact and enduring utility' which is a reasonable inference from observable star counts, though not explicitly stated in the data. The writing is clear, professional, and well-structured.",
+          "error": null
+        }
+      }
+    },
+    {
+      "id": "sum_005",
+      "login": "yyx990803",
+      "variants": {
+        "legacy": {
+          "summary": "Evan You is an exceptionally active developer with a substantial open-source presence, maintaining 198 public repositories that have collectively garnered over 11,000 stars and 1,000 forks. With 108,186 followers and a computed score of 45,676.8, he demonstrates significant influence and recognition within the developer community. His high ratio of stars to repositories and substantial fork count indicate that his projects are widely adopted and actively built upon by other developers, positioning him as a core open-source contributor rather than a casual user.",
+          "specificity": 1.0,
+          "factual_grounding": 5,
+          "hallucination_risk": 4,
+          "readability": 5,
+          "overall": 0.9375,
+          "judge_reasoning": "All numerical claims are accurate (198 repos, 11K+ stars, 1K+ forks, 108,186 followers, score 45,676.8). The characterization as 'exceptionally active' and having 'significant influence' is reasonable inference from the data. Minor interpretive claims about 'widely adopted' and 'core contributor' are supported by observable metrics but represent slight characterization beyond pure fact.",
+          "error": null
+        },
+        "agentic_with_top_repos": {
+          "summary": "## Developer Summary for Evan You (yyx990803)\n\nEvan You is a highly influential developer with an exceptional GitHub presence: 11,028 total stars, 108,186 followers, 198 public repositories, and a computed score of 45,676.8. His notable projects include **build-your-own-mint** (a personal finance analytics tool with 2,538 stars), **vue-hooks** (an experimental React hooks implementation in Vue with 1,588 stars), and **pod** (a Git push deploy solution for Node.js with 1,335 stars), demonstrating his expertise across web frameworks, infrastructure, and practical development tools. Evan You's massive follower count and extensive public repository portfolio indicate he is a prolific open-source contributor and thought leader in the JavaScript and Vue.js ecosystem.",
+          "specificity": 1.0,
+          "factual_grounding": 5,
+          "hallucination_risk": 4,
+          "readability": 5,
+          "overall": 0.9375,
+          "judge_reasoning": "All numerical facts (stars, followers, repos, score) are accurately stated and match the ground truth data exactly. The summary makes one minor interpretive claim about being a 'thought leader in the JavaScript and Vue.js ecosystem' which, while reasonable given the metrics, goes slightly beyond pure observable data. The writing is clear, well-structured, and professional.",
+          "error": null
+        }
+      }
+    }
+  ]
+}
