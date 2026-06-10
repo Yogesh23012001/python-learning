@@ -47,8 +47,25 @@ services:
       - GF_AUTH_ANONYMOUS_ENABLED=true
       - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
     volumes:
-      - grafana_data:/var/lib/grafana  
+      - grafana_data:/var/lib/grafana
+
+  redis:
+    image: redis:7-alpine
+    container_name: python_learning_redis
+    restart: unless-stopped
+    # Map to 6380 on the host so it doesn't clash with the existing
+    # fincopilot-redis already on 6379. Update REDIS_URL accordingly.
+    ports:
+      - "6380:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 volumes:
   pg_data:
   grafana_data:
+  redis_data:

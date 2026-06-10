@@ -115,7 +115,10 @@ async def main() -> None:
     settings = get_settings()
     if settings.anthropic_api_key is None:
         raise SystemExit("ANTHROPIC_API_KEY not set in .env — required for judge grader")
-    llm = make_router(settings)
+    import redis.asyncio as aioredis
+
+    redis_client = aioredis.from_url(settings.redis_url, decode_responses=False)
+    llm = make_router(settings, redis_client)
     judge_client = AsyncAnthropic(api_key=settings.anthropic_api_key.get_secret_value())
 
     results: list[dict[str, Any]] = []

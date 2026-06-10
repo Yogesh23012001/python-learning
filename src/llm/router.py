@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import time
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
+import redis.asyncio as aioredis
 import structlog
 from prometheus_client import Counter
 from pydantic import BaseModel
+from redis.exceptions import RedisError
 from tenacity import (
     AsyncRetrying,
     retry_if_exception_type,
@@ -27,6 +30,7 @@ from llm.interface import (
 )
 from llm.metrics import llm_calls_total
 from llm.pricing import calculate_cost_usd
+from llm.semantic_cache import SemanticCache
 
 logger = structlog.get_logger(__name__)
 
@@ -74,13 +78,22 @@ class LLMRouter:
         provider: LLMProvider,
         *,
         default_model: str,
+        redis_client: aioredis.Redis,
         max_retries: int = 3,
         cache_ttl_seconds: float = 300.0,
+        enable_semantic_cache: bool = True,
     ) -> None:
         self._provider = provider
         self._default_model = default_model
         self._max_retries = max_retries
-        self._cache = _PromptCache(ttl_seconds=cache_ttl_seconds)
+        self._cache = _PromptCache(redis_client, ttl_seconds=cache_ttl_seconds)
+        # SemanticCache loads an ~80MB sentence-transformer at construction;
+        # disable in tests / mock contexts to avoid the cost.
+        self._semantic_cache: SemanticCache | None = (
+            SemanticCache(redis_client, ttl_seconds=cache_ttl_seconds)
+            if enable_semantic_cache
+            else None
+        )
 
     @property
     def default_model(self) -> str:
@@ -103,23 +116,24 @@ class LLMRouter:
         chosen_model = model or self._default_model
 
         # ---- Cache lookup (skip for structured-output calls; see note below) ----
+        # Two-tier: exact byte-match first (fastest), then semantic similarity
+        # (slower, catches paraphrases). Both degrade to cache miss on Redis
+        # errors so the LLM call path is never blocked by cache infra.
         if response_schema is None:
-            cached = self._cache.get(
-                model=chosen_model,
-                prompt=prompt,
-                max_tokens=max_output_tokens,
+            cached = await self._cache.get(
+                model=chosen_model, prompt=prompt, max_tokens=max_output_tokens
             )
             if cached is not None:
-                llm_cache_total.labels(outcome="hit").inc()
+                llm_cache_total.labels(outcome="exact_hit").inc()
                 logger.info(
                     "llm_cache_hit",
+                    cache_type="exact",
                     provider=self._provider.name,
                     model=chosen_model,
                     input_tokens=cached.input_tokens,
                     output_tokens=cached.output_tokens,
                     cost_saved_usd=round(cached.cost_usd, 6),
                 )
-                # Return cached response — cost and elapsed are now 0
                 return RoutedLLMResponse(
                     text=cached.text,
                     input_tokens=cached.input_tokens,
@@ -129,6 +143,37 @@ class LLMRouter:
                     cost_usd=0.0,
                     elapsed_ms=0.0,
                 )
+
+            # Exact miss — try semantic cache for paraphrase-level matches.
+            if self._semantic_cache is not None:
+                try:
+                    sem_cached = await self._semantic_cache.get(model=chosen_model, prompt=prompt)
+                except RedisError as exc:
+                    logger.warning(
+                        "semantic_cache_get_redis_unavailable",
+                        error=str(exc)[:100],
+                    )
+                    sem_cached = None
+                if sem_cached is not None:
+                    llm_cache_total.labels(outcome="semantic_hit").inc()
+                    logger.info(
+                        "llm_cache_hit",
+                        cache_type="semantic",
+                        provider=self._provider.name,
+                        model=chosen_model,
+                        input_tokens=sem_cached.input_tokens,
+                        output_tokens=sem_cached.output_tokens,
+                        cost_saved_usd=round(sem_cached.cost_usd, 6),
+                    )
+                    return RoutedLLMResponse(
+                        text=sem_cached.text,
+                        input_tokens=sem_cached.input_tokens,
+                        output_tokens=sem_cached.output_tokens,
+                        model=sem_cached.model,
+                        provider=sem_cached.provider,
+                        cost_usd=0.0,
+                        elapsed_ms=0.0,
+                    )
             llm_cache_total.labels(outcome="miss").inc()
 
         # ---- Existing retry + provider call logic ----
@@ -191,14 +236,24 @@ class LLMRouter:
             elapsed_ms=elapsed_ms,
         )
 
-        # ---- Cache write ----
+        # ---- Cache write (exact + semantic) ----
         if response_schema is None:
-            self._cache.set(
+            await self._cache.set(
                 model=chosen_model,
                 prompt=prompt,
                 max_tokens=max_output_tokens,
                 response=result,
             )
+            if self._semantic_cache is not None:
+                try:
+                    await self._semantic_cache.set(
+                        model=chosen_model, prompt=prompt, response=result
+                    )
+                except RedisError as exc:
+                    logger.warning(
+                        "semantic_cache_set_redis_unavailable",
+                        error=str(exc)[:100],
+                    )
 
         return result
 
@@ -321,23 +376,29 @@ def _safe_cost(model: str, input_tokens: int, output_tokens: int) -> float:
 
 
 class _PromptCache:
-    """In-memory TTL cache for LLM responses.
+    """Exact-match LLM response cache backed by Redis.
 
-    Production replacement: Redis with TTL + LRU eviction.
-    This in-memory version is fine for single-process learning + dev.
+    Keys are sha256(model + max_tokens + prompt). Values are JSON-serialized
+    RoutedLLMResponse fields. TTL bounds staleness.
+
+    Migrated from in-memory dict -> Redis so the cache survives restarts and
+    is shared across processes/workers.
+
+    Redis errors (connection refused, timeout, etc.) degrade to cache miss —
+    we never want a cache outage to break the LLM call path.
     """
 
-    def __init__(self, *, ttl_seconds: float = 300.0, max_entries: int = 1000) -> None:
-        self._store: dict[str, tuple[float, RoutedLLMResponse]] = {}
-        self._ttl = ttl_seconds
-        self._max = max_entries
+    def __init__(self, redis_client: aioredis.Redis, *, ttl_seconds: float = 300.0) -> None:
+        self._redis = redis_client
+        self._ttl = int(ttl_seconds)
 
     @staticmethod
     def _key(model: str, prompt: str, max_tokens: int | None) -> str:
         material = f"{model}|{max_tokens}|{prompt}"
-        return hashlib.sha256(material.encode("utf-8")).hexdigest()
+        digest = hashlib.sha256(material.encode("utf-8")).hexdigest()
+        return f"llmcache:exact:{digest}"
 
-    def get(
+    async def get(
         self,
         *,
         model: str,
@@ -345,16 +406,22 @@ class _PromptCache:
         max_tokens: int | None,
     ) -> RoutedLLMResponse | None:
         key = self._key(model, prompt, max_tokens)
-        entry = self._store.get(key)
-        if entry is None:
+        try:
+            raw = await self._redis.get(key)
+        except RedisError as exc:
+            logger.warning("cache_get_redis_unavailable", error=str(exc)[:100])
             return None
-        ts, response = entry
-        if time.time() - ts > self._ttl:
-            self._store.pop(key, None)
+        if raw is None:
             return None
-        return response
+        try:
+            data = json.loads(raw)
+            return RoutedLLMResponse(**data)
+        except (json.JSONDecodeError, TypeError) as exc:
+            # Corrupt cache entry — log and treat as miss
+            logger.warning("cache_deserialize_failed", key=key, error=str(exc)[:100])
+            return None
 
-    def set(
+    async def set(
         self,
         *,
         model: str,
@@ -362,9 +429,9 @@ class _PromptCache:
         max_tokens: int | None,
         response: RoutedLLMResponse,
     ) -> None:
-        if len(self._store) >= self._max:
-            # Evict the oldest
-            oldest = min(self._store.keys(), key=lambda k: self._store[k][0])
-            self._store.pop(oldest, None)
         key = self._key(model, prompt, max_tokens)
-        self._store[key] = (time.time(), response)
+        payload = json.dumps(asdict(response), default=str)
+        try:
+            await self._redis.set(key, payload, ex=self._ttl)
+        except RedisError as exc:
+            logger.warning("cache_set_redis_unavailable", error=str(exc)[:100])

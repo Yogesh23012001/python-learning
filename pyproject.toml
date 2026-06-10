@@ -21,6 +21,7 @@ dependencies = [
     "purgatory>=3.0.1",
     "pydantic-settings>=2.14.1",
     "pydantic[email]>=2.13.4",
+    "redis>=5.0",
     "sentence-transformers>=5.5.1",
     "sqlalchemy[asyncio]>=2.0",
     "structlog>=25.5.0",

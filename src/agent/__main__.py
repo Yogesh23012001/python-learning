@@ -30,7 +30,10 @@ from agent.tools import ToolContext
 
 async def amain(prompt: str, max_iterations: int) -> None:
     settings = get_settings()
-    llm = make_router(settings)
+    import redis.asyncio as aioredis
+
+    redis_client = aioredis.from_url(settings.redis_url, decode_responses=False)
+    llm = make_router(settings, redis_client)
 
     async with GitHubClient(max_concurrency=3) as github_client:
         engine = make_engine()

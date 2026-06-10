@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 import httpx
+import redis.asyncio as aioredis
 import structlog
 from agent.agent_routes import router as agent_router
 from fastapi import FastAPI, Request, Response
@@ -18,6 +19,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from github_fetcher.client import GitHubClient
 from llm.factory import make_router
+from redis.exceptions import RedisError
 
 from api.config import SettingsDep, get_settings
 from api.db import make_engine, make_session_factory
@@ -66,13 +68,28 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             pool=2.0,
         ),
     )
+
+    # Redis client for the LLM prompt cache. Ping at startup so a misconfigured
+    # URL fails loud — but keep the LLM call path resilient: cache get/set is
+    # wrapped in try/except RedisError so a runtime outage degrades to misses.
+    app.state.redis_client = aioredis.from_url(
+        settings.redis_url,
+        encoding="utf-8",
+        decode_responses=False,
+    )
+    try:
+        await app.state.redis_client.ping()
+        logger.info("redis_connected", url=settings.redis_url)
+    except RedisError as exc:
+        logger.warning(
+            "redis_unavailable_at_startup",
+            url=settings.redis_url,
+            error=str(exc)[:200],
+        )
+
     if settings.gemini_api_key is None:
         raise RuntimeError("GEMINI_API_KEY not set in .env")
-    # app.state.llm_client = LLMClient(
-    #     api_key=settings.gemini_api_key.get_secret_value(),
-    #     default_model=settings.gemini_default_model,
-    #     )
-    app.state.llm_client = make_router(settings)
+    app.state.llm_client = make_router(settings, app.state.redis_client)
     await app.state.github_client.__aenter__()
     app.state.fake_llm = {"calls_made": 0}
 
@@ -80,6 +97,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     logger.info("shutting_down")
     await app.state.github_client.__aexit__(None, None, None)
+    await app.state.redis_client.aclose()
     await app.state.engine.dispose()
 
 

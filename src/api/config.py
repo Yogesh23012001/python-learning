@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     db_pool_size: int = Field(default=10, ge=1, le=50)
     db_max_overflow: int = Field(default=5, ge=0, le=20)
 
+    # ---- Redis (LLM response cache) ----
+    redis_url: str = Field(
+        default="redis://localhost:6379/0",
+        description="Redis DSN for the LLM prompt cache.",
+    )
+    llm_cache_ttl_seconds: float = Field(default=300.0, gt=0.0)
+
     # ---- External services ----
     github_api_timeout_s: float = Field(default=15.0, gt=0.0, le=60.0)
     github_max_concurrency: int = Field(default=5, ge=1, le=50)
