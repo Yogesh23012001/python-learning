@@ -18,6 +18,7 @@ dependencies = [
     "opentelemetry-instrumentation-sqlalchemy>=0.48b0",
     "opentelemetry-sdk>=1.27",
     "prometheus-client>=0.21",
+    "psycopg[binary]>=3.3.4",
     "purgatory>=3.0.1",
     "pydantic-settings>=2.14.1",
     "pydantic[email]>=2.13.4",
