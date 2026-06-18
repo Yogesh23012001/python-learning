@@ -77,3 +77,11 @@ but model invents facts
 Caught by:
 
 Faithfulness
+
+
+## Hybrid search nuance (Tue H4)
+BM25 found the literal `cache_control: ephemeral` chunk that dense missed
+entirely — exact-term win, proven. BUT naive RRF demoted it out of the hybrid
+top-5 because it rewards cross-retriever agreement and dense never ranked it.
+Open question for Thursday eval: does hybrid actually beat dense on the test
+set? If exact-term queries regress, tune fusion (weighted RRF or query routing).
