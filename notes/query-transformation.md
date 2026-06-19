@@ -75,3 +75,17 @@ in tokens; once a conversation exceeds it, earlier messages fall out unless
 compaction summarizes them"* is answer-shaped and full of the chunk's own
 vocabulary, so it should embed right next to the real chunk. That's the test:
 does the right chunk's rank jump from dense → HyDE on this query.
+
+## HyDE result (Wed H2)
+Mismatch query "Claude keeps forgetting in long chat" → context-windows doc.
+- Dense: target at rank 1, but only 1 of top-8 relevant (7 strays).
+- HyDE: 7 of top-8 from context-windows. Same rank-1, but the WHOLE top-k
+  became relevant.
+Why: the hypothetical probe used the docs' vocabulary ("context window limit",
+"tokens", "exceeded") that the question lacked — landed in the right cluster.
+Lesson: "rank of first relevant" showed NO change; "fraction of top-k relevant"
+(= Context Precision) showed a big gain. The metric you pick decides what you
+see. One designed-favorable query though — Thursday's 50-Q eval is the real test.
+
+
+

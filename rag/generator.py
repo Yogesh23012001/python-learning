@@ -14,7 +14,9 @@ from pathlib import Path
 import anthropic
 from dotenv import load_dotenv
 
+from rag.contextual_search import contextual_retrieve
 from rag.hybrid_search import hybrid_search
+from rag.hyde import hyde_retrieve
 from rag.pipeline import RAGAnswer, RetrievedChunk
 from rag.reranker import rerank
 from rag.retriever import retrieve
@@ -76,19 +78,24 @@ def answer_question(
     question: str,
     *,
     top_k: int = 5,
-    mode: str = "dense",  # "dense" | "hybrid" | "rerank"
+    mode: str = "dense",  # "dense" | "hybrid" | "rerank" | "hyde"
 ) -> RAGAnswer:
     """Full RAG flow.
     mode:
       'dense'  - vector retrieval only
       'hybrid' - dense + BM25 (RRF)
       'rerank' - hybrid retrieve broad (top 20) -> cross-encoder rerank -> top_k
+      'hyde'   - embed a hypothetical answer, retrieve chunks similar to it
     """
     if mode == "rerank":
         candidates = hybrid_search(question, top_k=20)
         chunks = rerank(question, candidates, top_k=top_k)
     elif mode == "hybrid":
         chunks = hybrid_search(question, top_k=top_k)
+    elif mode == "hyde":
+        chunks = hyde_retrieve(question, top_k=top_k)
+    elif mode == "contextual":
+        chunks = contextual_retrieve(question, top_k=top_k)
     else:
         chunks = retrieve(question, top_k=top_k)
 

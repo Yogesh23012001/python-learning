@@ -80,3 +80,5 @@ and debug at 2am; folding vectors into the Postgres I already operate means the
 operational-simplicity argument that justified pgvector is the exact same
 "minimize moving parts" reasoning I applied to the gateway. Reuse the boring,
 proven infrastructure until scale genuinely forces a specialized tool.
+
+
