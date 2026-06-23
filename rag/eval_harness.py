@@ -43,6 +43,7 @@ from ragas.metrics import (  # noqa: E402
     context_recall,
     faithfulness,
 )
+from ragas.run_config import RunConfig  # noqa: E402
 
 from rag.generator import answer_question  # noqa: E402
 
@@ -60,6 +61,12 @@ JUDGE_LLM = ChatAnthropic(
     temperature=0,
 )
 EVAL_EMBEDDINGS = HuggingFaceEmbeddings(model_name="BAAI/bge-small-en-v1.5")
+
+# Throughput, not throttling, is the bottleneck. Measured tier limits: 1000 req/min,
+# 580k tok/min, and a 16-way concurrent burst returned 0 rate-limit errors. So
+# parallelize the judge calls and fail fast (few retries — failures here aren't
+# from rate limits). Real ceiling for big runs is the 80k output-tok/min limit.
+EVAL_RUN_CONFIG = RunConfig(max_workers=16, timeout=120, max_retries=4, max_wait=20)
 
 
 def build_eval_dataset(qa_pairs: list[dict], *, mode: str = "dense") -> Dataset:
@@ -86,6 +93,7 @@ def run_eval(qa_pairs: list[dict], *, mode: str = "dense"):
         metrics=[context_precision, context_recall, faithfulness, answer_relevancy],
         llm=JUDGE_LLM,
         embeddings=EVAL_EMBEDDINGS,
+        run_config=EVAL_RUN_CONFIG,
     )
     return result
 

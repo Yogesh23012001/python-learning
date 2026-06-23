@@ -79,3 +79,102 @@ Caveats to carry into Thursday's numbers:
   is to compute the 4 metrics with direct judge calls and drop ragas entirely.
 - **Prereqs:** the `rag-postgres-1` pgvector container must be up, and
   `ANTHROPIC_API_KEY` loads from `.env` (added `load_dotenv` to the harness).
+
+
+
+  -Air myproject % uv run python -m rag.eval_async
+
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights: 100%|███████████████████████████████████████████████████████████████████████████████████████████████| 199/199 [00:00<00:00, 7218.55it/s]
+
+Evaluated 28 questions in 221.4s (dense mode)
+
+Q: How do I structure an effective prompt for Claude?
+   faith=1.0  prec=1.0  recall=0.5  rel=1.0
+
+Q: How do I use XML tags to organize a prompt?
+   faith=1.0  prec=1.0  recall=0.857  rel=1.0
+
+Q: How do I define a custom tool for Claude to call?
+   faith=1.0  prec=0.2  recall=0.5  rel=0.0
+
+Q: How do I cache a large system prompt to reduce cos
+   faith=0.75  prec=1.0  recall=0.667  rel=1.0
+
+Q: How do I keep a long conversation from exceeding t
+   faith=1.0  prec=0.8  recall=0.833  rel=1.0
+
+Q: How do I get Claude to cite sources from a documen
+   faith=1.0  prec=1.0  recall=1.0  rel=1.0
+
+Q: How do I include an image in a message to Claude?
+   faith=1.0  prec=0.8  recall=1.0  rel=1.0
+
+Q: How do I force Claude's response into a specific J
+   faith=1.0  prec=0.6  recall=0.5  rel=1.0
+
+Q: How do I stream a long response token by token?
+   faith=1.0  prec=0.4  recall=0.333  rel=1.0
+
+Q: How do I process many requests asynchronously and 
+   faith=0.933  prec=0.8  recall=0.625  rel=1.0
+
+Q: How do I have Claude read a PDF?
+   faith=1.0  prec=1.0  recall=1.0  rel=1.0
+
+Q: How do I write good test cases for evaluating Clau
+   faith=0.857  prec=0.2  recall=0.455  rel=1.0
+
+Q: What are text embeddings and when would I use them
+   faith=1.0  prec=0.4  recall=0.538  rel=1.0
+
+Q: What is the difference between extended thinking a
+   faith=0.944  prec=0.8  recall=0.714  rel=1.0
+
+Q: Why would I count tokens before sending a request,
+   faith=1.0  prec=0.8  recall=0.5  rel=1.0
+
+Q: How do prompt caching and batch processing each re
+   faith=0.833  prec=0.6  recall=0.889  rel=1.0
+
+Q: When should I use tool use versus structured outpu
+   faith=1.0  prec=0.4  recall=0.667  rel=0.0
+
+Q: What does `cache_control` with `"type": "ephemeral
+   faith=0.909  prec=0.6  recall=0.833  rel=1.0
+
+Q: What are the possible values of the `tool_choice` 
+   faith=0.8  prec=0.4  recall=0.833  rel=1.0
+
+Q: Is the `budget_tokens` parameter still supported?
+   faith=0.875  prec=0.8  recall=0.5  rel=1.0
+
+Q: What cost discount does the Message Batches API gi
+   faith=1.0  prec=0.4  recall=1.0  rel=1.0
+
+Q: What does setting `strict: true` on a tool do?
+   faith=1.0  prec=0.6  recall=1.0  rel=1.0
+
+Q: Why does Claude keep forgetting what we talked abo
+   faith=1.0  prec=0.0  recall=0.167  rel=0.0
+
+Q: My API bill is huge — how do I make it cheaper?
+   faith=1.0  prec=1.0  recall=0.625  rel=1.0
+
+Q: How do I stop Claude from making up facts that are
+   faith=1.0  prec=0.0  recall=0.4  rel=0.0
+
+Q: Can Claude look at a screenshot and tell me what's
+   faith=1.0  prec=0.8  recall=0.7  rel=1.0
+
+Q: What is the exact price per million tokens for Cla
+   faith=1.0  prec=0.4  recall=1.0  rel=0.0
+
+Q: How do I fine-tune Claude on my own training data?
+   faith=1.0  prec=0.0  recall=1.0  rel=0.0
+
+=== AVERAGES (dense) ===
+  faithfulness: 0.961
+  context_precision: 0.600
+  context_recall: 0.701
+  answer_relevance: 0.786
