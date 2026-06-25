@@ -46,6 +46,27 @@ class RAGAnswer:
     retrieved: list[RetrievedChunk]  # what was retrieved (for citations later)
 
 
+@dataclass(frozen=True)
+class Citation:
+    """Maps an inline [n] marker to the source chunk it references."""
+
+    marker: int  # the [n] in the answer
+    doc_id: str
+    url: str
+    snippet: str  # the cited chunk's text (truncated for display)
+
+
+@dataclass(frozen=True)
+class CitedAnswer:
+    """A RAG answer with inline [n] markers + resolved citations."""
+
+    question: str
+    answer: str  # contains [1], [2] inline markers
+    citations: list[Citation]
+    retrieved: list[RetrievedChunk]
+    coverage: float  # fraction of sentences carrying a citation
+
+
 # ============================================================
 # Pipeline stages (signatures now, bodies across H2-3)
 # ============================================================
